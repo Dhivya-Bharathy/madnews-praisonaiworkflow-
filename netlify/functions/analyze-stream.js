@@ -132,9 +132,133 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
   }
 }
 
-async function fetchNewsApiByDomains(query, outletList) {
+function decodeXml(text) {
+  return String(text || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function normalizeOutletName(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function parseGoogleNewsRss(xml, fallbackOutlet = "Google News") {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemBlock = match[1];
+    const titleMatch = itemBlock.match(
+      /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/
+    );
+    const linkMatch = itemBlock.match(/<link>([\s\S]*?)<\/link>/);
+    const pubMatch = itemBlock.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+    const sourceMatch = itemBlock.match(
+      /<source[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/source>|<source[^>]*>([\s\S]*?)<\/source>/
+    );
+    let title = decodeXml((titleMatch?.[1] || titleMatch?.[2] || "").trim());
+    const url = decodeXml((linkMatch?.[1] || "").trim());
+    const outlet = decodeXml(
+      (sourceMatch?.[1] || sourceMatch?.[2] || fallbackOutlet).trim()
+    );
+
+    if (!title || !url) continue;
+    title = title.replace(/\s*-\s*[^-]+$/, "").trim();
+
+    items.push({
+      outlet: outlet || fallbackOutlet,
+      title,
+      url,
+      publishedAt: pubMatch?.[1] || "",
+    });
+  }
+  return items;
+}
+
+async function fetchNewsApiEverything(query, pageSize = 60) {
   const key = process.env.NEWS_API_KEY;
   if (!key) return [];
+
+  const url = new URL("https://newsapi.org/v2/everything");
+  url.searchParams.set("q", `${query} India`);
+  url.searchParams.set("language", "en");
+  url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("pageSize", String(pageSize));
+  url.searchParams.set("apiKey", key);
+
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === "error") return [];
+    return Array.isArray(data.articles) ? data.articles : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchGoogleNewsByDomains(query, outletList) {
+  const siteQuery = outletList.map((outlet) => `site:${outlet.domain}`).join(" OR ");
+  const q = `${query} India (${siteQuery}) when:7d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    q
+  )}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) return [];
+  const xml = await response.text();
+  const outletDomains = new Set(outletList.map((o) => o.domain));
+  const byDomain = new Map(outletList.map((o) => [o.domain, o.name]));
+  const allowedOutletNames = new Set(outletList.map((o) => normalizeOutletName(o.name)));
+  return pickTopArticles(
+    parseGoogleNewsRss(xml)
+      .filter((item) => {
+        const host = getHostFromUrl(item.url);
+        const sourceName = normalizeOutletName(item.outlet);
+        return outletDomains.has(host) || allowedOutletNames.has(sourceName);
+      })
+      .map((item) => {
+        const host = getHostFromUrl(item.url);
+        return {
+          ...item,
+          outlet:
+            byDomain.get(host) ||
+            outletList.find(
+              (o) => normalizeOutletName(o.name) === normalizeOutletName(item.outlet)
+            )?.name ||
+            item.outlet,
+        };
+      }),
+    12
+  );
+}
+
+async function fetchGoogleNewsCenter(query) {
+  const q = `${query} India when:7d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    q
+  )}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) return [];
+  const xml = await response.text();
+  return pickTopArticles(
+    parseGoogleNewsRss(xml).filter((item) => {
+      const host = getHostFromUrl(item.url);
+      return host && isAcceptableCenterHost(host) && !isLowQualityArticleTitle(item?.title);
+    }),
+    14
+  );
+}
+
+async function fetchNewsApiByDomains(query, outletList) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) {
+    return fetchGoogleNewsByDomains(query, outletList).catch(() => []);
+  }
 
   const domains = outletList.map((outlet) => outlet.domain).join(",");
   const byDomain = new Map(outletList.map((o) => [o.domain, o.name]));
@@ -148,55 +272,74 @@ async function fetchNewsApiByDomains(query, outletList) {
   url.searchParams.set("pageSize", "25");
   url.searchParams.set("apiKey", key);
 
+  let articles = [];
   try {
     const response = await fetchWithTimeout(url);
-    if (!response.ok) return [];
-    const data = await response.json();
-    if (data?.status === "error") return [];
-    const articles = Array.isArray(data.articles) ? data.articles : [];
-    return pickTopArticles(
-      articles
-        .filter((article) => outletDomains.has(getHostFromUrl(article?.url)))
-        .map((article) => {
-          const domain = getHostFromUrl(article?.url);
-          return mapArticle(article, byDomain.get(domain));
-        }),
-      12
-    );
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.status !== "error") {
+        articles = Array.isArray(data.articles) ? data.articles : [];
+      }
+    }
   } catch {
-    return [];
+    articles = [];
   }
+
+  const primary = pickTopArticles(
+    articles
+      .filter((article) => outletDomains.has(getHostFromUrl(article?.url)))
+      .map((article) => {
+        const domain = getHostFromUrl(article?.url);
+        return mapArticle(article, byDomain.get(domain));
+      }),
+    12
+  );
+  if (primary.length >= 3) {
+    return primary;
+  }
+
+  const fallbackArticles = await fetchNewsApiEverything(query, 80);
+  const fromBroad = pickTopArticles(
+    fallbackArticles
+      .filter((article) => outletDomains.has(getHostFromUrl(article?.url)))
+      .map((article) => {
+        const domain = getHostFromUrl(article?.url);
+        return mapArticle(article, byDomain.get(domain));
+      }),
+    12
+  );
+  if (fromBroad.length >= 3) {
+    return fromBroad;
+  }
+
+  return fetchGoogleNewsByDomains(query, outletList).catch(() => []);
 }
 
 async function fetchCenterNews(query) {
-  const key = process.env.NEWS_API_KEY;
-  if (!key) return [];
+  const rawEverything = await fetchNewsApiEverything(query, 80).catch(() => []);
+  let picked = pickTopArticles(
+    rawEverything
+      .filter((article) => {
+        const host = getHostFromUrl(article?.url);
+        return host && isAcceptableCenterHost(host) && !isLowQualityArticleTitle(article?.title);
+      })
+      .map((article) => mapArticle(article)),
+    14
+  );
 
-  const url = new URL("https://newsapi.org/v2/everything");
-  url.searchParams.set("q", `${query} India`);
-  url.searchParams.set("language", "en");
-  url.searchParams.set("sortBy", "publishedAt");
-  url.searchParams.set("pageSize", "40");
-  url.searchParams.set("apiKey", key);
-
-  try {
-    const response = await fetchWithTimeout(url);
-    if (!response.ok) return [];
-    const data = await response.json();
-    if (data?.status === "error") return [];
-    const articles = Array.isArray(data.articles) ? data.articles : [];
-    return pickTopArticles(
-      articles
-        .filter((article) => {
-          const host = getHostFromUrl(article?.url);
-          return host && isAcceptableCenterHost(host);
-        })
-        .map((article) => mapArticle(article)),
-      14
-    );
-  } catch {
-    return [];
+  if (picked.length >= 10) {
+    return picked;
   }
+
+  const rss = await fetchGoogleNewsCenter(query).catch(() => []);
+  const seen = new Set(picked.map((a) => a.url).filter(Boolean));
+  for (const item of rss) {
+    if (item?.url && !seen.has(item.url)) {
+      seen.add(item.url);
+      picked.push(item);
+    }
+  }
+  return pickTopArticles(picked, 14);
 }
 
 function slimArticlesForModel(groupedArticles) {
