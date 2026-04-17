@@ -751,6 +751,61 @@ function fallbackPointsFromArticles(articles) {
   return points;
 }
 
+async function generateBlindSpotsFromPoints(query, parsedPoints) {
+  if (!openai) return null;
+  const prompt = `
+You are analyzing perspective gaps for Indian news coverage.
+Use ONLY the provided point lists and do not invent external facts.
+
+Query: "${query}"
+LEFT points: ${JSON.stringify(parsedPoints.LEFT || [])}
+CENTER points: ${JSON.stringify(parsedPoints.CENTER || [])}
+RIGHT points: ${JSON.stringify(parsedPoints.RIGHT || [])}
+
+Return strict JSON only:
+{
+  "LEFT_IGNORES": ["..."],
+  "CENTER_IGNORES": ["..."],
+  "RIGHT_IGNORES": ["..."]
+}
+
+Rules:
+- 1-2 concise bullets per array.
+- Must be grounded in differences between the provided point lists.
+- No generic filler text.
+`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.2,
+      max_tokens: 260,
+      messages: [
+        {
+          role: "system",
+          content: "Return strictly valid JSON and no additional prose.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+    const text = completion.choices?.[0]?.message?.content || "{}";
+    const json = JSON.parse(text);
+    return {
+      LEFT_IGNORES: Array.isArray(json?.LEFT_IGNORES)
+        ? json.LEFT_IGNORES.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 2)
+        : [],
+      CENTER_IGNORES: Array.isArray(json?.CENTER_IGNORES)
+        ? json.CENTER_IGNORES.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 2)
+        : [],
+      RIGHT_IGNORES: Array.isArray(json?.RIGHT_IGNORES)
+        ? json.RIGHT_IGNORES.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 2)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 app.get("/api/analyze-stream", async (req, res) => {
   const query = String(req.query.q || "").trim();
   if (!query) {
@@ -1003,14 +1058,25 @@ app.get("/api/analyze-stream", async (req, res) => {
       }
     }
 
-    const enoughForBlindSpots =
-      parsed.LEFT.length >= MIN_POINTS_FOR_BLIND_SPOTS &&
-      parsed.CENTER.length >= MIN_POINTS_FOR_BLIND_SPOTS &&
-      parsed.RIGHT.length >= MIN_POINTS_FOR_BLIND_SPOTS;
-    if (!enoughForBlindSpots) {
-      parsed.BLIND_SPOTS.LEFT_IGNORES = [];
-      parsed.BLIND_SPOTS.CENTER_IGNORES = [];
-      parsed.BLIND_SPOTS.RIGHT_IGNORES = [];
+    const hasAnyBlindSpots =
+      (parsed.BLIND_SPOTS.LEFT_IGNORES?.length || 0) +
+        (parsed.BLIND_SPOTS.CENTER_IGNORES?.length || 0) +
+        (parsed.BLIND_SPOTS.RIGHT_IGNORES?.length || 0) >
+      0;
+    const populatedSidesCount = [parsed.LEFT, parsed.CENTER, parsed.RIGHT].filter(
+      (arr) => (arr?.length || 0) > 0
+    ).length;
+    const enoughForGapAnalysis =
+      populatedSidesCount >= 2 &&
+      (parsed.LEFT.length + parsed.CENTER.length + parsed.RIGHT.length >=
+        MIN_POINTS_FOR_BLIND_SPOTS + 1);
+    if (!hasAnyBlindSpots && enoughForGapAnalysis) {
+      const generatedBlindSpots = await generateBlindSpotsFromPoints(query, parsed);
+      if (generatedBlindSpots) {
+        parsed.BLIND_SPOTS.LEFT_IGNORES = generatedBlindSpots.LEFT_IGNORES;
+        parsed.BLIND_SPOTS.CENTER_IGNORES = generatedBlindSpots.CENTER_IGNORES;
+        parsed.BLIND_SPOTS.RIGHT_IGNORES = generatedBlindSpots.RIGHT_IGNORES;
+      }
     }
 
     const hasResultData =

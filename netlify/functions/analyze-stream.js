@@ -627,8 +627,12 @@ export async function handler(event) {
         (parsed.BLIND_SPOTS.CENTER_IGNORES?.length || 0) +
         (parsed.BLIND_SPOTS.RIGHT_IGNORES?.length || 0) >
       0;
+    const populatedSidesCount = [parsed.LEFT, parsed.CENTER, parsed.RIGHT].filter(
+      (arr) => (arr?.length || 0) > 0
+    ).length;
     const enoughForGapAnalysis =
-      parsed.LEFT.length > 0 && parsed.CENTER.length > 0 && parsed.RIGHT.length > 0;
+      populatedSidesCount >= 2 &&
+      parsed.LEFT.length + parsed.CENTER.length + parsed.RIGHT.length >= 3;
     if (!hasAnyBlindSpots && enoughForGapAnalysis) {
       const generatedBlindSpots = await generateBlindSpotsFromPoints(query, parsed);
       if (generatedBlindSpots) {
