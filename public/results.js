@@ -14,6 +14,9 @@ const emptyStateHint = document.getElementById("empty-state-hint");
 const leftList = document.getElementById("left-list");
 const centerList = document.getElementById("center-list");
 const rightList = document.getElementById("right-list");
+const leftSources = document.getElementById("left-sources");
+const centerSources = document.getElementById("center-sources");
+const rightSources = document.getElementById("right-sources");
 const leftIgnores = document.getElementById("left-ignores");
 const centerIgnores = document.getElementById("center-ignores");
 const rightIgnores = document.getElementById("right-ignores");
@@ -29,15 +32,26 @@ function renderPoints(container, points = []) {
   container.innerHTML = "";
   if (!Array.isArray(points) || points.length === 0) {
     const li = document.createElement("li");
+    li.className = "list-disc ml-4 text-slate-600";
     li.textContent = "Not enough recent coverage from this perspective.";
     container.appendChild(li);
     return;
   }
   for (const item of points) {
     const li = document.createElement("li");
-    const point = item?.point || "";
-    const source = item?.source ? ` (${item.source})` : "";
-    li.textContent = `${point}${source}`.trim();
+    li.className = "list-disc ml-4";
+    const point = String(item?.point || "").trim();
+    const source = String(item?.source || "").trim();
+    const pointEl = document.createElement("div");
+    pointEl.className = "text-slate-800";
+    pointEl.textContent = point || "No summary available.";
+    li.appendChild(pointEl);
+    if (source) {
+      const sourceEl = document.createElement("div");
+      sourceEl.className = "mt-0.5 text-xs text-slate-500 break-words";
+      sourceEl.textContent = source;
+      li.appendChild(sourceEl);
+    }
     container.appendChild(li);
   }
 }
@@ -46,13 +60,42 @@ function renderBlindSpots(container, items = []) {
   container.innerHTML = "";
   if (!Array.isArray(items) || items.length === 0) {
     const li = document.createElement("li");
+    li.className = "list-disc ml-4 text-slate-600";
     li.textContent = "No clear blind spot found for this side in this run.";
     container.appendChild(li);
     return;
   }
   for (const text of items) {
     const li = document.createElement("li");
+    li.className = "list-disc ml-4";
     li.textContent = text;
+    container.appendChild(li);
+  }
+}
+
+function renderSourceLinks(container, links = []) {
+  container.innerHTML = "";
+  if (!Array.isArray(links) || links.length === 0) {
+    const li = document.createElement("li");
+    li.className = "list-disc ml-4 text-slate-600";
+    li.textContent = "No source links available.";
+    container.appendChild(li);
+    return;
+  }
+  for (const link of links) {
+    const url = String(link?.url || "").trim();
+    const title = String(link?.title || "").trim();
+    const outlet = String(link?.outlet || "").trim();
+    if (!url || !title) continue;
+    const li = document.createElement("li");
+    li.className = "list-disc ml-4";
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.className = "text-blue-700 hover:underline break-all";
+    a.textContent = `${outlet ? `${outlet}: ` : ""}${title}`;
+    li.appendChild(a);
     container.appendChild(li);
   }
 }
@@ -66,9 +109,8 @@ function normalizeBlindSpotItems(items) {
 
 function setLoading(loading) {
   analyzeBtn.disabled = loading;
-  analyzeBtn.textContent = loading ? " " : "Analyze";
+  analyzeBtn.textContent = loading ? "Loading..." : "Analyze";
   loadingPanel.classList.toggle("hidden", !loading);
-  document.body.classList.toggle("is-loading", loading);
 }
 
 /** Model JSON sometimes uses different casing; treat as empty only if all are missing. */
@@ -113,7 +155,7 @@ function buildEmptyHint(query, meta, lastStatusLine) {
 
   if (isNoCoverageMeta(meta)) {
     return (
-      "Thin Line only uses a fixed set of Indian left, center, and right outlets. " +
+      "madnews only uses a fixed set of Indian left, center, and right outlets. " +
       "If none of them published a match for your wording in the last few days, you will see this message. " +
       exampleLine
     );
@@ -151,6 +193,9 @@ async function runAnalysis(query) {
   leftList.innerHTML = "";
   centerList.innerHTML = "";
   rightList.innerHTML = "";
+  leftSources.innerHTML = "";
+  centerSources.innerHTML = "";
+  rightSources.innerHTML = "";
 
   fetchMsg.textContent = `Showing perspectives for "${query}"`;
   setLoading(true);
@@ -233,6 +278,9 @@ async function runAnalysis(query) {
     renderPoints(leftList, finalResult.LEFT);
     renderPoints(centerList, finalResult.CENTER);
     renderPoints(rightList, finalResult.RIGHT);
+    renderSourceLinks(leftSources, finalResult.meta?.source_links?.LEFT);
+    renderSourceLinks(centerSources, finalResult.meta?.source_links?.CENTER);
+    renderSourceLinks(rightSources, finalResult.meta?.source_links?.RIGHT);
 
     const verbatim = finalResult.meta?.verbatim_headlines_for;
     if (Array.isArray(verbatim) && verbatim.length > 0) {

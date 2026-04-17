@@ -196,6 +196,84 @@ h1 span {
   max-width: 760px;
 }
 
+.daily-topics {
+  margin: 24px auto 0;
+  max-width: 980px;
+  text-align: left;
+}
+
+.daily-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.daily-col {
+  background: var(--panel);
+  border: 1px solid #eceef1;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.daily-col h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.daily-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.daily-list li {
+  margin-bottom: 8px;
+}
+
+.daily-topic-btn {
+  border: 0;
+  background: transparent;
+  color: #1f2937;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.daily-topic-btn:hover {
+  text-decoration: underline;
+}
+
+.about-us {
+  margin: 20px auto 0;
+  max-width: 980px;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid #eceef1;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.about-us h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.about-us p {
+  max-width: none;
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.about-us a {
+  color: #3559a8;
+  text-decoration: none;
+}
+
+.about-us a:hover {
+  text-decoration: underline;
+}
+
 .trending-topics p {
   margin: 0 0 10px;
   color: #8c939f;
@@ -320,6 +398,14 @@ h1 span {
   font-weight: 700;
 }
 
+.col h5 {
+  margin: 10px 0 8px;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  text-transform: uppercase;
+}
+
 .left h2 {
   color: var(--left);
 }
@@ -336,6 +422,19 @@ h1 span {
 .blind-spots ul {
   margin: 0;
   padding-left: 18px;
+}
+
+.source-links {
+  margin-top: 0;
+}
+
+.source-links a {
+  color: #3559a8;
+  text-decoration: none;
+}
+
+.source-links a:hover {
+  text-decoration: underline;
 }
 
 .col li,
@@ -403,7 +502,8 @@ h1 span {
   }
 
   .results,
-  .blind-grid {
+  .blind-grid,
+  .daily-grid {
     grid-template-columns: 1fr;
   }
 

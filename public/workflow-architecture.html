@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thin Line - Daily Politics Workflow & Architecture</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --line: #dbe2ee;
+        --accent: #3559a8;
+        --left: #8b5cf6;
+        --center: #0f766e;
+        --right: #b45309;
+        --ok: #166534;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 28px;
+      }
+
+      .sub {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .btn {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      .node {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: #fafcff;
+      }
+
+      .node h3 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+
+      .arrow {
+        text-align: center;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 36px;
+      }
+
+      .stack {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 12px;
+      }
+
+      ul {
+        margin: 8px 0 0 18px;
+      }
+
+      li {
+        margin: 5px 0;
+      }
+
+      .lanes {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .lane {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+      }
+
+      .lane h3 {
+        margin: 0 0 8px;
+      }
+
+      .left h3 {
+        color: var(--left);
+      }
+
+      .center h3 {
+        color: var(--center);
+      }
+
+      .right h3 {
+        color: var(--right);
+      }
+
+      .kpi {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
+        gap: 10px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: #fbfdff;
+      }
+
+      .pill .v {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--ok);
+      }
+
+      .mono {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        background: #f7f9ff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        overflow: auto;
+      }
+
+      @media (max-width: 980px) {
+        .flow {
+          grid-template-columns: 1fr;
+        }
+        .stack,
+        .lanes,
+        .kpi {
+          grid-template-columns: 1fr;
+        }
+        .arrow {
+          display: none;
+        }
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+        .btn {
+          display: none;
+        }
+        .card {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <div>
+          <h1>Thin Line - Daily Politics Workflow</h1>
+          <div class="sub">
+            Architecture for scraping top 10 daily political stories and showing LEFT / CENTER / RIGHT analysis on click.
+          </div>
+        </div>
+        <button class="btn" onclick="window.print()">Download as PDF</button>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <h2>1) End-to-End Flow</h2>
+          <div class="flow">
+            <div class="node">
+              <h3>A. Daily Scheduler</h3>
+              <div class="muted">Runs once every morning.</div>
+              <ul>
+                <li>Trigger cron job</li>
+                <li>Collect candidate stories</li>
+              </ul>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <h3>B. Ingestion + Dedup</h3>
+              <div class="muted">NewsAPI / RSS / source feeds.</div>
+              <ul>
+                <li>Normalize titles/URLs</li>
+                <li>Cluster same story variants</li>
+              </ul>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <h3>C. Perspective Engine</h3>
+              <div class="muted">Generate LEFT/CENTER/RIGHT points.</div>
+              <ul>
+                <li>Source-grounded bullet extraction</li>
+                <li>Blind-spot generation</li>
+              </ul>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <h3>D. Store Daily Snapshot</h3>
+              <div class="muted">Persist top stories + analyses.</div>
+              <ul>
+                <li>Story table</li>
+                <li>Perspective table</li>
+              </ul>
+            </div>
+            <div class="arrow">→</div>
+            <div class="node">
+              <h3>E. UI Consumption</h3>
+              <div class="muted">User clicks story card.</div>
+              <ul>
+                <li>Fetch precomputed analysis</li>
+                <li>Render links under each side</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>2) Proposed System Architecture</h2>
+          <div class="stack">
+            <div>
+              <h3>Backend Services</h3>
+              <ul>
+                <li><b>Scheduler Service:</b> daily trigger for top political stories.</li>
+                <li><b>Ingestion Service:</b> fetches, normalizes, and clusters stories.</li>
+                <li><b>Classification Service:</b> tags as politics / policy / elections.</li>
+                <li><b>Analysis Service:</b> builds LEFT/CENTER/RIGHT + blind spots.</li>
+                <li><b>API Service:</b> exposes daily list + story detail endpoints.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Data Layer</h3>
+              <ul>
+                <li><b>stories_daily</b> (top 10 list per day)</li>
+                <li><b>story_sources</b> (raw source links, outlet, timestamp)</li>
+                <li><b>story_perspectives</b> (LEFT/CENTER/RIGHT bullets)</li>
+                <li><b>story_blindspots</b> (left/center/right ignores)</li>
+                <li><b>analysis_audit</b> (model version, run time, quality flags)</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>3) Click Workflow (User Experience)</h2>
+          <ul>
+            <li>User lands on “Today’s Top 10 Politics Stories”.</li>
+            <li>User clicks one story card.</li>
+            <li>API returns precomputed perspective payload in &lt;1 second (cache-first).</li>
+            <li>UI shows three columns: LEFT, CENTER, RIGHT.</li>
+            <li>Each bullet includes <b>Source Link Section</b> under that side.</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>4) Source Links Under LEFT / CENTER / RIGHT</h2>
+          <div class="lanes">
+            <div class="lane left">
+              <h3>LEFT</h3>
+              <ul>
+                <li>Bullet point 1</li>
+                <li>Bullet point 2</li>
+              </ul>
+              <p class="muted"><b>Sources:</b> clickable links from left outlets only.</p>
+            </div>
+            <div class="lane center">
+              <h3>CENTER</h3>
+              <ul>
+                <li>Bullet point 1</li>
+                <li>Bullet point 2</li>
+              </ul>
+              <p class="muted"><b>Sources:</b> neutral outlets, deduped and ranked.</p>
+            </div>
+            <div class="lane right">
+              <h3>RIGHT</h3>
+              <ul>
+                <li>Bullet point 1</li>
+                <li>Bullet point 2</li>
+              </ul>
+              <p class="muted"><b>Sources:</b> clickable links from right outlets only.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>5) API Contract (Example)</h2>
+          <div class="mono">
+GET /api/daily-politics?date=YYYY-MM-DD
+{
+  "date": "2026-04-17",
+  "stories": [
+    {
+      "story_id": "pol_20260417_01",
+      "title": "UCC implementation debate intensifies",
+      "summary": "Top cross-outlet trend in Indian politics",
+      "score": 92
+    }
+  ]
+}
+
+GET /api/story/:story_id
+{
+  "story_id": "pol_20260417_01",
+  "title": "UCC implementation debate intensifies",
+  "LEFT": [{ "point": "...", "source": "...", "url": "https://..." }],
+  "CENTER": [{ "point": "...", "source": "...", "url": "https://..." }],
+  "RIGHT": [{ "point": "...", "source": "...", "url": "https://..." }],
+  "BLIND_SPOTS": {
+    "LEFT_IGNORES": ["..."],
+    "CENTER_IGNORES": ["..."],
+    "RIGHT_IGNORES": ["..."]
+  }
+}
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>6) Success Metrics</h2>
+          <div class="kpi">
+            <div class="pill">
+              <div class="v">&lt; 1s</div>
+              <div class="muted">Story click load latency</div>
+            </div>
+            <div class="pill">
+              <div class="v">10/day</div>
+              <div class="muted">Political stories ingested</div>
+            </div>
+            <div class="pill">
+              <div class="v">&gt; 95%</div>
+              <div class="muted">Valid source-link coverage</div>
+            </div>
+            <div class="pill">
+              <div class="v">&lt; 5%</div>
+              <div class="muted">Manual moderation required</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>
+

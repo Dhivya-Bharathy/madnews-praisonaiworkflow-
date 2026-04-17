@@ -489,6 +489,71 @@ async function fetchCenterNews(query) {
   return pickTopArticles(picked, 14);
 }
 
+function dedupeByUrlAndTitle(items = [], maxItems = 10) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const title = String(item?.title || "").trim();
+    const url = String(item?.url || "").trim();
+    if (!title || !url) continue;
+    const key = `${url.toLowerCase()}::${title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      title,
+      url,
+      outlet: String(item?.outlet || item?.source?.name || "Unknown").trim(),
+      publishedAt: String(item?.publishedAt || "").trim(),
+    });
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+async function fetchGoogleNewsTopic(query, maxItems = 10) {
+  const q = `${query} when:3d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    q
+  )}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) return [];
+  const xml = await response.text();
+  return dedupeByUrlAndTitle(parseGoogleNewsRss(xml), maxItems);
+}
+
+async function fetchTopStoriesBucket(query, maxItems = 10, keywordHints = []) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) {
+    return fetchGoogleNewsTopic(query, maxItems).catch(() => []);
+  }
+
+  const url = new URL("https://newsapi.org/v2/everything");
+  url.searchParams.set("q", query);
+  url.searchParams.set("language", "en");
+  url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("pageSize", String(Math.max(maxItems * 2, 25)));
+  url.searchParams.set("apiKey", key);
+
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === "error") return [];
+    const articles = Array.isArray(data.articles) ? data.articles : [];
+    const mapped = articles.map((article) => mapArticle(article, article?.source?.name));
+    const filtered = mapped.filter((item) => {
+      if (isLowQualityArticleTitle(item?.title)) return false;
+      if (!keywordHints.length) return true;
+      const bag =
+        `${String(item?.title || "")} ${String(item?.description || "")}`.toLowerCase();
+      return keywordHints.some((kw) => bag.includes(String(kw).toLowerCase()));
+    });
+    return dedupeByUrlAndTitle(filtered, maxItems);
+  } catch {
+    return [];
+  }
+}
+
 function buildAnalysisPrompt(searchQuery, groupedArticles) {
   const sourceCatalog = {
     LEFT: (groupedArticles.LEFT || []).map((item) => `${item.outlet} - ${item.title}`),
@@ -547,6 +612,57 @@ Return ONLY valid JSON using this exact schema:
 }
 `;
 }
+
+app.get("/api/top-stories", async (_req, res) => {
+  try {
+    const [national, geopolitical] = await Promise.all([
+      fetchTopStoriesBucket(
+        "India politics OR parliament OR election OR policy OR supreme court",
+        10,
+        [
+          "election",
+          "parliament",
+          "assembly",
+          "government",
+          "supreme court",
+          "minister",
+          "bill",
+          "policy",
+          "bjp",
+          "congress",
+        ]
+      ),
+      fetchTopStoriesBucket(
+        "India foreign policy OR diplomacy OR border OR geopolitical OR UN",
+        10,
+        [
+          "foreign policy",
+          "diplomatic",
+          "geopolitical",
+          "geopolitics",
+          "border",
+          "china",
+          "pakistan",
+          "united nations",
+          "un ",
+          "sanction",
+          "war",
+          "ceasefire",
+          "conflict",
+        ]
+      ),
+    ]);
+    return res.json({
+      national,
+      geopolitical,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to fetch top stories",
+    });
+  }
+});
 
 function slimArticlesForModel(groupedArticles) {
   const trimSide = (sideItems = []) =>
@@ -811,6 +927,23 @@ app.get("/api/analyze-stream", async (req, res) => {
       parsed.meta && typeof parsed.meta === "object" && !Array.isArray(parsed.meta)
         ? { ...parsed.meta }
         : {};
+    parsed.meta.source_links = {
+      LEFT: (groupedArticles.LEFT || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+      CENTER: (groupedArticles.CENTER || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+      RIGHT: (groupedArticles.RIGHT || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+    };
     const verbatimHeadlinesFor = [];
 
     // When the model returns nothing valid, list real headlines from the same fetch (not invented text).
@@ -904,5 +1037,5 @@ app.get("/api/analyze-stream", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Thin Line running at http://localhost:${PORT}`);
+  console.log(`madnews running at http://localhost:${PORT}`);
 });
