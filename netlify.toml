@@ -7,3 +7,8 @@
   to = "/.netlify/functions/analyze-stream"
   status = 200
 
+[[redirects]]
+  from = "/api/top-stories"
+  to = "/.netlify/functions/top-stories"
+  status = 200
+
