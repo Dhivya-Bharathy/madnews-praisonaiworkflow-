@@ -345,6 +345,36 @@ async function fetchGoogleNewsCenter(query) {
   );
 }
 
+async function fetchGoogleNewsCenterByTrustedDomains(query) {
+  const preferredDomains = [
+    "ndtv.com",
+    "thehindu.com",
+    "indianexpress.com",
+    "hindustantimes.com",
+    "timesofindia.indiatimes.com",
+    "livemint.com",
+    "deccanherald.com",
+    "business-standard.com",
+  ];
+  const siteQuery = preferredDomains.map((d) => `site:${d}`).join(" OR ");
+  const q = `${query} India (${siteQuery}) when:10d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    q
+  )}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) return [];
+  const xml = await response.text();
+  return pickTopArticles(
+    parseGoogleNewsRss(xml)
+      .filter((item) => {
+        const host = getHostFromUrl(item.url);
+        return host && isAcceptableCenterHost(host) && !isLowQualityArticleTitle(item?.title);
+      })
+      .map((item) => mapArticle(item, item.outlet)),
+    14
+  );
+}
+
 async function fetchNewsApiByDomains(query, outletList) {
   const key = process.env.NEWS_API_KEY;
   if (!key) {
@@ -484,10 +514,16 @@ async function fetchCenterNewsHardFallback(query) {
     fetchNewsApiTopHeadlinesIndia("India politics", 50).catch(() => []),
     fetchGoogleNewsCenter("India politics").catch(() => []),
   ]);
+  const [rssTrustedPolitics, rssTrustedQuery] = await Promise.all([
+    fetchGoogleNewsCenterByTrustedDomains("India politics").catch(() => []),
+    fetchGoogleNewsCenterByTrustedDomains(simplifyQuery(query) || "India").catch(() => []),
+  ]);
 
   merged = mergeArticlesByUrl(merged, headlinesNoQuery);
   merged = mergeArticlesByUrl(merged, headlinesPolitics);
   merged = mergeArticlesByUrl(merged, rssPolitics);
+  merged = mergeArticlesByUrl(merged, rssTrustedPolitics);
+  merged = mergeArticlesByUrl(merged, rssTrustedQuery);
   return merged.slice(0, 14);
 }
 
