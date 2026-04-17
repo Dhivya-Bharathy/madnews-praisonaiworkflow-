@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "praison": "cd praison-news && python -m uvicorn app:app --host 127.0.0.1 --port 8790"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -11,6 +11,7 @@ const OPENAI_MAX_TOKENS = Number(process.env.OPENAI_MAX_TOKENS || 800);
 const CACHE_VERSION = "v8";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 9000);
+const PRAISON_FETCH_TIMEOUT_MS = Number(process.env.PRAISON_FETCH_TIMEOUT_MS || 45000);
 const MODEL_MAX_POINTS_PER_SIDE = Number(process.env.MODEL_MAX_POINTS_PER_SIDE || 4);
 const MIN_POINTS_FOR_BLIND_SPOTS = 2;
 const ARTICLE_MAX_AGE_DAYS = Number(process.env.ARTICLE_MAX_AGE_DAYS || 21);
@@ -534,6 +535,48 @@ function mergeArticlesByUrl(primary, extra) {
     }
   }
   return pickTopArticles(out, 24);
+}
+
+/** Optional Praison Python collector (DDG + LLM curate). Set PRAISON_SERVICE_URL e.g. http://127.0.0.1:8790 */
+async function fetchPraisonSupplement(query, perspective, outletList, maxItems = 8) {
+  const base = process.env.PRAISON_SERVICE_URL?.trim();
+  if (!base) return [];
+  const domains = (outletList || []).map((o) => o.domain).filter(Boolean);
+  const url = `${base.replace(/\/$/, "")}/v1/collect`;
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          perspective,
+          domains,
+          max_items: maxItems,
+        }),
+      },
+      PRAISON_FETCH_TIMEOUT_MS
+    );
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    return [];
+  }
+  const articles = Array.isArray(data.articles) ? data.articles : [];
+  return articles.map((a) => ({
+    outlet: String(a.outlet || "Unknown").trim(),
+    title: String(a.title || "").trim(),
+    url: String(a.url || "").trim(),
+    publishedAt: String(a.publishedAt || "").trim(),
+    description: "",
+  }));
 }
 
 /** When domain-specific search is sparse, pull same outlets from a broad India query. */
@@ -1163,6 +1206,18 @@ app.get("/api/analyze-stream", async (req, res) => {
           await fetchGoogleNewsByDomains(googleBackfillQuery, rightOutlets).catch(() => [])
         )
       );
+    }
+
+    if (process.env.PRAISON_SERVICE_URL?.trim()) {
+      sendSse(res, "status", { message: "Augmenting with Praison news collector..." });
+      const [prL, prR, prC] = await Promise.all([
+        fetchPraisonSupplement(query, "LEFT", leftOutlets, 8),
+        fetchPraisonSupplement(query, "RIGHT", rightOutlets, 8),
+        fetchPraisonSupplement(query, "CENTER", centerOutlets, 8),
+      ]);
+      left = filterArticleList(mergeArticlesByUrl(left, prL));
+      right = filterArticleList(mergeArticlesByUrl(right, prR));
+      center = filterArticleList(mergeArticlesByUrl(center, prC));
     }
 
     const sourceErrors = [leftRaw, rightRaw, centerRaw]

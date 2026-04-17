@@ -733,6 +733,44 @@ Rules:
   }
 }
 
+async function fetchPraisonSupplement(query, perspective, outletList, maxItems, baseUrl, timeoutMs) {
+  const domains = (outletList || []).map((o) => o.domain).filter(Boolean);
+  const url = `${String(baseUrl).replace(/\/$/, "")}/v1/collect`;
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          perspective,
+          domains,
+          max_items: maxItems,
+        }),
+      },
+      timeoutMs
+    );
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    return [];
+  }
+  const articles = Array.isArray(data.articles) ? data.articles : [];
+  return articles.map((a) => ({
+    outlet: String(a.outlet || "Unknown").trim(),
+    title: String(a.title || "").trim(),
+    url: String(a.url || "").trim(),
+    publishedAt: String(a.publishedAt || "").trim(),
+  }));
+}
+
 export async function handler(event) {
   const query = String(event.queryStringParameters?.q || "").trim();
   const events = [];
@@ -800,9 +838,23 @@ export async function handler(event) {
       centerResolved = mergeArticlesByUrl(centerResolved, centerBackfill).slice(0, 14);
     }
 
+    const praisonBase = String(process.env.PRAISON_SERVICE_URL || "").trim();
+    if (praisonBase) {
+      events.push(toSseEvent("status", { message: "Augmenting with Praison news collector..." }));
+      const prTimeout = Number(process.env.PRAISON_FETCH_TIMEOUT_MS || 45000);
+      const [prL, prR, prC] = await Promise.all([
+        fetchPraisonSupplement(query, "LEFT", leftOutlets, 8, praisonBase, prTimeout).catch(() => []),
+        fetchPraisonSupplement(query, "RIGHT", rightOutlets, 8, praisonBase, prTimeout).catch(() => []),
+        fetchPraisonSupplement(query, "CENTER", centerOutlets, 8, praisonBase, prTimeout).catch(() => []),
+      ]);
+      leftResolved = pickTopArticles(mergeArticlesByUrl(leftResolved, prL), 12);
+      rightResolved = pickTopArticles(mergeArticlesByUrl(rightResolved, prR), 12);
+      centerResolved = pickTopArticles(mergeArticlesByUrl(centerResolved, prC), 14);
+    }
+
     const groupedArticles = { LEFT: leftResolved, CENTER: centerResolved, RIGHT: rightResolved };
 
-    if (!left.length && !center.length && !right.length) {
+    if (!leftResolved.length && !centerResolved.length && !rightResolved.length) {
       const emptyPayload = {
         search_query: query,
         LEFT: [],
