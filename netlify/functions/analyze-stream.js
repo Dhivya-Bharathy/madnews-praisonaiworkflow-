@@ -248,6 +248,51 @@ async function fetchNewsApiEverything(query, pageSize = 60) {
   }
 }
 
+async function fetchNewsApiTopHeadlinesIndia(query, pageSize = 30) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) return [];
+
+  const url = new URL("https://newsapi.org/v2/top-headlines");
+  url.searchParams.set("country", "in");
+  url.searchParams.set("pageSize", String(pageSize));
+  url.searchParams.set("apiKey", key);
+  if (query) url.searchParams.set("q", query);
+
+  let articles = [];
+  try {
+    const response = await fetchWithTimeout(url);
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.status !== "error") {
+        articles = Array.isArray(data.articles) ? data.articles : [];
+      }
+    }
+  } catch {
+    articles = [];
+  }
+  return pickTopArticles(
+    articles
+      .filter((article) => {
+        const host = getHostFromUrl(article?.url);
+        return host && isAcceptableCenterHost(host);
+      })
+      .map((article) => mapArticle(article, article.source?.name)),
+    14
+  );
+}
+
+function mergeArticlesByUrl(primary, extra) {
+  const seen = new Set((primary || []).map((a) => a.url).filter(Boolean));
+  const out = [...(primary || [])];
+  for (const a of extra || []) {
+    if (a?.url && !seen.has(a.url)) {
+      seen.add(a.url);
+      out.push(a);
+    }
+  }
+  return pickTopArticles(out, 24);
+}
+
 async function fetchGoogleNewsByDomains(query, outletList) {
   const siteQuery = outletList.map((outlet) => `site:${outlet.domain}`).join(" OR ");
   const q = `${query} India (${siteQuery}) when:7d`;
@@ -390,18 +435,15 @@ async function fetchCenterNews(query) {
     14
   );
 
+  const headlines = await fetchNewsApiTopHeadlinesIndia(query, 40).catch(() => []);
+  picked = mergeArticlesByUrl(picked, headlines);
+
   if (picked.length >= 10) {
     return picked;
   }
 
   const rss = await fetchGoogleNewsCenter(query).catch(() => []);
-  const seen = new Set(picked.map((a) => a.url).filter(Boolean));
-  for (const item of rss) {
-    if (item?.url && !seen.has(item.url)) {
-      seen.add(item.url);
-      picked.push(item);
-    }
-  }
+  picked = mergeArticlesByUrl(picked, rss);
   return pickTopArticles(picked, 14);
 }
 
