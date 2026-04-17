@@ -13,6 +13,7 @@ const CACHE_TTL_MS = 30 * 60 * 1000;
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 9000);
 const MODEL_MAX_POINTS_PER_SIDE = Number(process.env.MODEL_MAX_POINTS_PER_SIDE || 4);
 const MIN_POINTS_FOR_BLIND_SPOTS = 2;
+const ARTICLE_MAX_AGE_DAYS = Number(process.env.ARTICLE_MAX_AGE_DAYS || 21);
 
 const blockedCenterDomains = new Set([
   "msn.com",
@@ -189,9 +190,43 @@ function mapArticle(article, fallbackOutlet) {
   };
 }
 
+function queryLooksGlobalNews(query) {
+  const s = String(query || "").toLowerCase();
+  return /\b(gaza|israel|palestin|hamas|idf|west bank|ukraine|kyiv|moscow|russia|putin|nato|united nations|\bun\b|security council|kosovo|serbia|iran|tehran|taiwan|beijing|china|xi jinping|syria|yemen|lebanon|hezbollah|afghanistan|iraq|libya|sudan|somalia|venezuela|north korea|kim jong|nuclear deal|sanctions|ceasefire|peacekeeping|troops|invasion|war crime|humanitarian corridor)\b/.test(
+    s
+  );
+}
+
+function newsApiFromDateParam() {
+  const d = new Date(Date.now() - ARTICLE_MAX_AGE_DAYS * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+function parsePublishedMs(isoOrRfc) {
+  const t = Date.parse(String(isoOrRfc || "").trim());
+  return Number.isFinite(t) ? t : null;
+}
+
+function isRecentArticleItem(item) {
+  const ms = parsePublishedMs(item?.publishedAt);
+  if (ms == null) return true;
+  const age = Date.now() - ms;
+  return age >= 0 && age <= ARTICLE_MAX_AGE_DAYS * 86400000;
+}
+
+function buildNewsApiEverythingQuery(query) {
+  const q = String(query || "").trim();
+  if (!q) return "India";
+  if (queryLooksGlobalNews(q)) {
+    return `${q} (international OR global OR India OR diplomatic OR "United Nations")`;
+  }
+  return `${q} India`;
+}
+
 function pickTopArticles(items, maxItems = 12) {
-  return items
-    .filter((item) => item && item.title && item.url)
+  return (items || [])
+    .filter((item) => item && item.title && item.url && !isLowQualityArticleTitle(item.title))
+    .filter((item) => isRecentArticleItem(item))
     .slice(0, maxItems);
 }
 
@@ -247,7 +282,12 @@ function isLowQualityArticleTitle(title) {
     /^economy archives/.test(t) ||
     /^politics archives/.test(t) ||
     t.endsWith(" - archive") ||
-    t.endsWith(" archives")
+    t.endsWith(" archives") ||
+    /\bnews articles\b.*\bfor\b.*\b20\d{2}\b/.test(t) ||
+    /\barticles\b\s*&\s*stories\b.*\bfor\b/.test(t) ||
+    /\b(stories|articles)\s+for\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(
+      t
+    )
   );
 }
 
@@ -257,7 +297,8 @@ function filterArticleList(list) {
       a &&
       a.title &&
       a.url &&
-      !isLowQualityArticleTitle(a.title)
+      !isLowQualityArticleTitle(a.title) &&
+      isRecentArticleItem(a)
   );
 }
 
@@ -315,7 +356,9 @@ function parseGoogleNewsRss(xml, fallbackOutlet = "Google News") {
 
 async function fetchGoogleNewsByDomains(query, outletList) {
   const siteQuery = outletList.map((outlet) => `site:${outlet.domain}`).join(" OR ");
-  const q = `${query} India (${siteQuery}) when:7d`;
+  const q = queryLooksGlobalNews(query)
+    ? `${query} (${siteQuery}) when:7d`
+    : `${query} India (${siteQuery}) when:7d`;
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
     q
   )}&hl=en-IN&gl=IN&ceid=IN:en`;
@@ -390,9 +433,10 @@ async function fetchNewsApiEverything(query, pageSize = 60) {
   if (!key) return [];
 
   const url = new URL("https://newsapi.org/v2/everything");
-  url.searchParams.set("q", `${query} India`);
+  url.searchParams.set("q", buildNewsApiEverythingQuery(query));
   url.searchParams.set("language", "en");
   url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("from", newsApiFromDateParam());
   url.searchParams.set("pageSize", String(pageSize));
   url.searchParams.set("apiKey", key);
 
@@ -419,6 +463,7 @@ async function fetchNewsApiByDomains(query, outletList) {
   url.searchParams.set("domains", domains);
   url.searchParams.set("language", "en");
   url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("from", newsApiFromDateParam());
   url.searchParams.set("pageSize", "25");
   url.searchParams.set("apiKey", key);
 
@@ -1098,12 +1143,15 @@ app.get("/api/analyze-stream", async (req, res) => {
     right = filterArticleList(rightEnriched);
 
     const broadQuery = simplifyQuery(query) || "India politics";
+    const googleBackfillQuery = queryLooksGlobalNews(query)
+      ? simplifyQuery(query) || String(query || "").trim()
+      : broadQuery;
     if (left.length < 2) {
       sendSse(res, "status", { message: "Boosting left coverage from Google News fallback..." });
       left = filterArticleList(
         mergeArticlesByUrl(
           left,
-          await fetchGoogleNewsByDomains(broadQuery, leftOutlets).catch(() => [])
+          await fetchGoogleNewsByDomains(googleBackfillQuery, leftOutlets).catch(() => [])
         )
       );
     }
@@ -1112,7 +1160,7 @@ app.get("/api/analyze-stream", async (req, res) => {
       right = filterArticleList(
         mergeArticlesByUrl(
           right,
-          await fetchGoogleNewsByDomains(broadQuery, rightOutlets).catch(() => [])
+          await fetchGoogleNewsByDomains(googleBackfillQuery, rightOutlets).catch(() => [])
         )
       );
     }
