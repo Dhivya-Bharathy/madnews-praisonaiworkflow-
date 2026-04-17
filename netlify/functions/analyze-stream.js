@@ -5,6 +5,10 @@ const OPENAI_MAX_TOKENS = Number(process.env.OPENAI_MAX_TOKENS || 800);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 9000);
 const MODEL_MAX_POINTS_PER_SIDE = Number(process.env.MODEL_MAX_POINTS_PER_SIDE || 4);
 const ARTICLE_MAX_AGE_DAYS = Number(process.env.ARTICLE_MAX_AGE_DAYS || 21);
+/** Netlify/AWS Lambda enforces a short wall clock (~10s free / ~26s Pro); long Praison calls cause 502. */
+const IS_NETLIFY_FUNCTION = Boolean(
+  process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY_DEV
+);
 
 const leftOutlets = [
   { name: "ThePrint", domain: "theprint.in" },
@@ -841,15 +845,26 @@ export async function handler(event) {
     const praisonBase = String(process.env.PRAISON_SERVICE_URL || "").trim();
     if (praisonBase) {
       events.push(toSseEvent("status", { message: "Augmenting with Praison news collector..." }));
-      const prTimeout = Number(process.env.PRAISON_FETCH_TIMEOUT_MS || 45000);
-      const [prL, prR, prC] = await Promise.all([
+      const prTimeoutConfigured = Number(process.env.PRAISON_FETCH_TIMEOUT_MS || 45000);
+      const prTimeout = IS_NETLIFY_FUNCTION
+        ? Math.min(prTimeoutConfigured, 5000)
+        : prTimeoutConfigured;
+      const prWallMs = IS_NETLIFY_FUNCTION ? 7500 : 120000;
+      const praisonWork = Promise.all([
         fetchPraisonSupplement(query, "LEFT", leftOutlets, 8, praisonBase, prTimeout).catch(() => []),
         fetchPraisonSupplement(query, "RIGHT", rightOutlets, 8, praisonBase, prTimeout).catch(() => []),
         fetchPraisonSupplement(query, "CENTER", centerOutlets, 8, praisonBase, prTimeout).catch(() => []),
       ]);
-      leftResolved = pickTopArticles(mergeArticlesByUrl(leftResolved, prL), 12);
-      rightResolved = pickTopArticles(mergeArticlesByUrl(rightResolved, prR), 12);
-      centerResolved = pickTopArticles(mergeArticlesByUrl(centerResolved, prC), 14);
+      const batch = await Promise.race([
+        praisonWork.then((r) => ({ ok: true, r })),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false }), prWallMs)),
+      ]);
+      if (batch?.ok && Array.isArray(batch.r)) {
+        const [prL, prR, prC] = batch.r;
+        leftResolved = pickTopArticles(mergeArticlesByUrl(leftResolved, prL), 12);
+        rightResolved = pickTopArticles(mergeArticlesByUrl(rightResolved, prR), 12);
+        centerResolved = pickTopArticles(mergeArticlesByUrl(centerResolved, prC), 14);
+      }
     }
 
     const groupedArticles = { LEFT: leftResolved, CENTER: centerResolved, RIGHT: rightResolved };

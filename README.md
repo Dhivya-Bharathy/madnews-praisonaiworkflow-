@@ -53,3 +53,5 @@ docker run -e OPENAI_API_KEY=... -e OPENAI_MODEL=gpt-4o-mini -p 8790:8790 madnew
 The image runs `uvicorn` on `0.0.0.0` and respects the `PORT` env var hosts often inject.
 
 After deploy, paste the **public origin** (scheme + host, no path) into Netlify as `PRAISON_SERVICE_URL`, trigger a new deploy, and analysis should match your local setup.
+
+**502 on analyze after enabling Praison:** Netlify functions have a **short wall-clock limit** (often ~10s on free). The app **caps Praison calls to ~5s each** and **~7.5s total** for the three parallel requests when running as a Netlify function. If Render is cold-starting, Praison may add nothing that run—analysis still completes. For heavier Praison use, upgrade Netlify (longer function limit) or temporarily **remove `PRAISON_SERVICE_URL`** from Netlify to confirm the 502 was timeout-related.
