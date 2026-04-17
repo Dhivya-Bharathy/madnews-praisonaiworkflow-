@@ -464,6 +464,33 @@ async function fetchCenterNewsWithRetries(query) {
   return merged.slice(0, 14);
 }
 
+async function fetchCenterNewsHardFallback(query) {
+  let merged = [];
+  const genericQueries = [
+    simplifyQuery(query),
+    `${simplifyQuery(query)} india politics`,
+    "india politics",
+    "indian parliament",
+  ].filter(Boolean);
+
+  for (const q of Array.from(new Set(genericQueries))) {
+    const items = await fetchCenterNews(q).catch(() => []);
+    merged = mergeArticlesByUrl(merged, items);
+    if (merged.length >= 10) return merged.slice(0, 14);
+  }
+
+  const [headlinesNoQuery, headlinesPolitics, rssPolitics] = await Promise.all([
+    fetchNewsApiTopHeadlinesIndia("", 50).catch(() => []),
+    fetchNewsApiTopHeadlinesIndia("India politics", 50).catch(() => []),
+    fetchGoogleNewsCenter("India politics").catch(() => []),
+  ]);
+
+  merged = mergeArticlesByUrl(merged, headlinesNoQuery);
+  merged = mergeArticlesByUrl(merged, headlinesPolitics);
+  merged = mergeArticlesByUrl(merged, rssPolitics);
+  return merged.slice(0, 14);
+}
+
 function slimArticlesForModel(groupedArticles) {
   const trimSide = (sideItems = []) =>
     sideItems.slice(0, MODEL_MAX_POINTS_PER_SIDE).map((item) => ({
@@ -671,7 +698,14 @@ export async function handler(event) {
     const centerPromise = fetchCenterNewsWithRetries(query);
 
     const [left, right, center] = await Promise.all([leftPromise, rightPromise, centerPromise]);
-    const groupedArticles = { LEFT: left, CENTER: center, RIGHT: right };
+    let centerResolved = center;
+    if (centerResolved.length < 3) {
+      events.push(toSseEvent("status", { message: "Boosting center coverage with broader India fallback..." }));
+      const centerBackfill = await fetchCenterNewsHardFallback(query).catch(() => []);
+      centerResolved = mergeArticlesByUrl(centerResolved, centerBackfill).slice(0, 14);
+    }
+
+    const groupedArticles = { LEFT: left, CENTER: centerResolved, RIGHT: right };
 
     if (!left.length && !center.length && !right.length) {
       const emptyPayload = {
