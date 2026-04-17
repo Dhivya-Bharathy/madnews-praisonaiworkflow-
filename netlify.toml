@@ -1,0 +1,9 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/analyze-stream"
+  to = "/.netlify/functions/analyze-stream"
+  status = 200
+
