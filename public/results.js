@@ -45,6 +45,9 @@ function renderPoints(container, points = []) {
 function renderBlindSpots(container, items = []) {
   container.innerHTML = "";
   if (!Array.isArray(items) || items.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No clear blind spot found for this side in this run.";
+    container.appendChild(li);
     return;
   }
   for (const text of items) {
@@ -245,9 +248,7 @@ async function runAnalysis(query) {
     renderBlindSpots(rightIgnores, rightBlind);
 
     resultsWrap.classList.remove("hidden");
-    const hasBlindContent =
-      leftBlind.length > 0 || centerBlind.length > 0 || rightBlind.length > 0;
-    blindWrap.classList.toggle("hidden", !hasBlindContent);
+    blindWrap.classList.remove("hidden");
   } catch (error) {
     fetchMsg.textContent = "";
     const errHint =
