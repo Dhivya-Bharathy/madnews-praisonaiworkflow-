@@ -608,6 +608,94 @@ async function fetchTopStoriesBucket(query, maxItems = 10, keywordHints = []) {
   }
 }
 
+function articlesToTopStories(articles = []) {
+  return (articles || [])
+    .map((a) => mapArticle(a, a?.source?.name))
+    .filter((item) => item.title && item.url && !isLowQualityArticleTitle(item.title));
+}
+
+async function fetchNewsApiTopHeadlinesParams(searchParams, pageSize = 40) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) return [];
+  const url = new URL("https://newsapi.org/v2/top-headlines");
+  url.searchParams.set("pageSize", String(pageSize));
+  url.searchParams.set("apiKey", key);
+  for (const [k, v] of Object.entries(searchParams || {})) {
+    if (v != null && v !== "") url.searchParams.set(k, String(v));
+  }
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === "error") return [];
+    return Array.isArray(data.articles) ? data.articles : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Live India trending (NewsAPI top-headlines for country=in). */
+async function fetchTrendingIndiaHeadlines(maxItems = 12) {
+  const articles = await fetchNewsApiTopHeadlinesParams({ country: "in" }, 50);
+  return dedupeByUrlAndTitle(articlesToTopStories(articles), maxItems);
+}
+
+/** Live global / wires trending for geopolitics column. */
+async function fetchTrendingGlobalHeadlines(maxItems = 12) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) return [];
+
+  const attempts = [
+    { sources: "bbc-news,reuters,associated-press" },
+    { sources: "bbc-news,associated-press" },
+    { sources: "reuters" },
+    { country: "us", category: "general" },
+    { country: "gb", category: "general" },
+  ];
+  let flat = [];
+  for (const params of attempts) {
+    const articles = await fetchNewsApiTopHeadlinesParams(params, 28);
+    flat.push(...articlesToTopStories(articles));
+    if (dedupeByUrlAndTitle(flat, maxItems + 2).length >= maxItems) break;
+  }
+  return dedupeByUrlAndTitle(flat, maxItems);
+}
+
+function prioritizeNationalPoliticsFirst(items = []) {
+  const hints =
+    /minister|parliament|election|assembly|government|bjp|congress|bill|court|supreme|policy|lok sabha|rajya|chief minister|prime minister|\bpm\b|\bcm\b|governor|cabinet|ministry|protest|vote|campaign/i;
+  const pri = [];
+  const rest = [];
+  for (const it of items || []) {
+    if (hints.test(String(it?.title || ""))) pri.push(it);
+    else rest.push(it);
+  }
+  return [...pri, ...rest];
+}
+
+function prioritizeGeopoliticalFirst(items = []) {
+  const hints =
+    /china|russia|ukraine|iran|israel|gaza|nato|un |\bun\b|ceasefire|sanction|military|war|conflict|diplomat|embassy|border|taiwan|middle east|europe|africa|trump|putin|modi|trade|tariff|missile|troops|invasion|peace talk/i;
+  const pri = [];
+  const rest = [];
+  for (const it of items || []) {
+    if (hints.test(String(it?.title || ""))) pri.push(it);
+    else rest.push(it);
+  }
+  return [...pri, ...rest];
+}
+
+async function fetchGoogleNewsTopicUS(query, maxItems = 10) {
+  const q = `${query} when:2d`;
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    q
+  )}&hl=en-US&gl=US&ceid=US:en`;
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) return [];
+  const xml = await response.text();
+  return dedupeByUrlAndTitle(parseGoogleNewsRss(xml), maxItems);
+}
+
 function buildAnalysisPrompt(searchQuery, groupedArticles) {
   const sourceCatalog = {
     LEFT: (groupedArticles.LEFT || []).map((item) => `${item.outlet} - ${item.title}`),
@@ -669,7 +757,14 @@ Return ONLY valid JSON using this exact schema:
 
 app.get("/api/top-stories", async (_req, res) => {
   try {
-    const [national, geopolitical] = await Promise.all([
+    const [
+      trendingIn,
+      trendingWorld,
+      bucketNational,
+      bucketGeo,
+    ] = await Promise.all([
+      fetchTrendingIndiaHeadlines(14),
+      fetchTrendingGlobalHeadlines(14),
       fetchTopStoriesBucket(
         "India politics OR parliament OR election OR policy OR supreme court",
         10,
@@ -706,6 +801,30 @@ app.get("/api/top-stories", async (_req, res) => {
         ]
       ),
     ]);
+
+    let national = dedupeByUrlAndTitle(
+      prioritizeNationalPoliticsFirst([...trendingIn, ...bucketNational]),
+      10
+    );
+    let geopolitical = dedupeByUrlAndTitle(
+      prioritizeGeopoliticalFirst([...trendingWorld, ...bucketGeo]),
+      10
+    );
+
+    if (!national.length) {
+      national = await fetchGoogleNewsTopic("India politics government parliament", 10);
+    }
+    if (!geopolitical.length) {
+      geopolitical = await fetchGoogleNewsTopicUS(
+        "world geopolitics diplomacy conflict UN NATO",
+        10
+      );
+    }
+
+    res.set(
+      "Cache-Control",
+      "public, max-age=60, s-maxage=60, stale-while-revalidate=120"
+    );
     return res.json({
       national,
       geopolitical,

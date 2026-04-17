@@ -3,6 +3,9 @@ const input = document.getElementById("search-input");
 const chips = Array.from(document.querySelectorAll(".chip"));
 const nationalTopics = document.getElementById("national-topics");
 const geopoliticalTopics = document.getElementById("geopolitics-topics");
+const topStoriesMeta = document.getElementById("top-stories-meta");
+
+const TOP_STORIES_REFRESH_MS = 4 * 60 * 1000;
 
 function normalizeStoryQuery(title) {
   const cleaned = String(title || "")
@@ -81,15 +84,28 @@ function renderDailyTopics(container, stories = []) {
 
 async function loadTopStories() {
   try {
-    const response = await fetch("/api/top-stories");
+    const response = await fetch(`/api/top-stories?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Failed with ${response.status}`);
     const payload = await response.json();
     renderDailyTopics(nationalTopics, payload?.national || []);
     renderDailyTopics(geopoliticalTopics, payload?.geopolitical || []);
+    if (topStoriesMeta) {
+      const gen = payload?.generatedAt ? new Date(payload.generatedAt) : null;
+      topStoriesMeta.textContent = gen
+        ? `Trending lists refresh automatically every few minutes · Updated ${gen.toLocaleTimeString()}`
+        : "Trending lists refresh automatically every few minutes.";
+    }
   } catch {
     renderDailyTopics(nationalTopics, []);
     renderDailyTopics(geopoliticalTopics, []);
+    if (topStoriesMeta) {
+      topStoriesMeta.textContent = "";
+    }
   }
 }
 
 loadTopStories();
+setInterval(loadTopStories, TOP_STORIES_REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") loadTopStories();
+});
