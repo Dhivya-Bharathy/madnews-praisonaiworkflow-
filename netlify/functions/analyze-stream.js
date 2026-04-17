@@ -622,6 +622,28 @@ export async function handler(event) {
       parsed.RIGHT = fallbackPointsFromArticles(groupedArticles.RIGHT);
     }
 
+    parsed.meta =
+      parsed.meta && typeof parsed.meta === "object" && !Array.isArray(parsed.meta)
+        ? { ...parsed.meta }
+        : {};
+    parsed.meta.source_links = {
+      LEFT: (groupedArticles.LEFT || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+      CENTER: (groupedArticles.CENTER || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+      RIGHT: (groupedArticles.RIGHT || []).slice(0, 8).map((a) => ({
+        title: a.title,
+        outlet: a.outlet,
+        url: a.url,
+      })),
+    };
+
     const hasAnyBlindSpots =
       (parsed.BLIND_SPOTS.LEFT_IGNORES?.length || 0) +
         (parsed.BLIND_SPOTS.CENTER_IGNORES?.length || 0) +
