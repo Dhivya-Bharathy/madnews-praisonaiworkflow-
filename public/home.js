@@ -4,6 +4,36 @@ const chips = Array.from(document.querySelectorAll(".chip"));
 const nationalTopics = document.getElementById("national-topics");
 const geopoliticalTopics = document.getElementById("geopolitics-topics");
 
+function normalizeStoryQuery(title) {
+  const cleaned = String(title || "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const stop = new Set([
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "and",
+    "or",
+    "with",
+    "as",
+    "at",
+    "by",
+    "from",
+  ]);
+  const tokens = cleaned
+    .split(" ")
+    .map((t) => t.trim())
+    .filter((t) => t && !stop.has(t.toLowerCase()));
+  return tokens.slice(0, 7).join(" ");
+}
+
 form?.addEventListener("submit", (event) => {
   const query = input.value.trim();
   if (!query) {
@@ -40,7 +70,7 @@ function renderDailyTopics(container, stories = []) {
       "daily-topic-btn text-left text-sm text-slate-700 hover:text-blue-700 hover:underline";
     btn.textContent = story?.title || "Untitled story";
     btn.addEventListener("click", () => {
-      const q = String(story?.title || "").trim();
+      const q = String(story?.query || "").trim() || normalizeStoryQuery(story?.title);
       if (!q) return;
       window.location.href = `/results.html?q=${encodeURIComponent(q)}`;
     });

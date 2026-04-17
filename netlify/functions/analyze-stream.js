@@ -67,6 +67,52 @@ function toSseEvent(event, data) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+function simplifyQuery(query) {
+  const cleaned = String(query || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const stop = new Set([
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "and",
+    "or",
+    "with",
+    "as",
+    "at",
+    "by",
+    "from",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "this",
+    "that",
+  ]);
+  const tokens = cleaned
+    .split(" ")
+    .map((t) => t.trim())
+    .filter((t) => t && !stop.has(t));
+  return tokens.slice(0, 6).join(" ");
+}
+
+function buildQueryFallbacks(query) {
+  const original = String(query || "").trim();
+  const simplified = simplifyQuery(original);
+  const firstChunk = original.split(/\s+/).slice(0, 5).join(" ").trim();
+  return Array.from(new Set([original, simplified, firstChunk].filter(Boolean)));
+}
+
 function getHostFromUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return "";
   try {
@@ -315,6 +361,23 @@ async function fetchNewsApiByDomains(query, outletList) {
   return fetchGoogleNewsByDomains(query, outletList).catch(() => []);
 }
 
+async function fetchNewsApiByDomainsWithRetries(query, outletList) {
+  const merged = [];
+  const seen = new Set();
+  for (const q of buildQueryFallbacks(query)) {
+    const items = await fetchNewsApiByDomains(q, outletList).catch(() => []);
+    for (const item of items || []) {
+      const key = String(item?.url || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+      if (merged.length >= 12) break;
+    }
+    if (merged.length >= 3) break;
+  }
+  return merged.slice(0, 12);
+}
+
 async function fetchCenterNews(query) {
   const rawEverything = await fetchNewsApiEverything(query, 80).catch(() => []);
   let picked = pickTopArticles(
@@ -340,6 +403,23 @@ async function fetchCenterNews(query) {
     }
   }
   return pickTopArticles(picked, 14);
+}
+
+async function fetchCenterNewsWithRetries(query) {
+  const merged = [];
+  const seen = new Set();
+  for (const q of buildQueryFallbacks(query)) {
+    const items = await fetchCenterNews(q).catch(() => []);
+    for (const item of items || []) {
+      const key = String(item?.url || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+      if (merged.length >= 14) break;
+    }
+    if (merged.length >= 8) break;
+  }
+  return merged.slice(0, 14);
 }
 
 function slimArticlesForModel(groupedArticles) {
@@ -540,13 +620,13 @@ export async function handler(event) {
 
   try {
     events.push(toSseEvent("status", { message: "Scanning left-leaning sources..." }));
-    const leftPromise = fetchNewsApiByDomains(query, leftOutlets);
+    const leftPromise = fetchNewsApiByDomainsWithRetries(query, leftOutlets);
 
     events.push(toSseEvent("status", { message: "Gathering right-wing perspectives..." }));
-    const rightPromise = fetchNewsApiByDomains(query, rightOutlets);
+    const rightPromise = fetchNewsApiByDomainsWithRetries(query, rightOutlets);
 
     events.push(toSseEvent("status", { message: "Checking neutral/center reports..." }));
-    const centerPromise = fetchCenterNews(query);
+    const centerPromise = fetchCenterNewsWithRetries(query);
 
     const [left, right, center] = await Promise.all([leftPromise, rightPromise, centerPromise]);
     const groupedArticles = { LEFT: left, CENTER: center, RIGHT: right };

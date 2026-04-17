@@ -90,6 +90,52 @@ function normalizeQuery(query) {
   return `${CACHE_VERSION}:${query.toLowerCase().trim().replace(/\s+/g, " ")}`;
 }
 
+function simplifyQuery(query) {
+  const cleaned = String(query || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const stop = new Set([
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "and",
+    "or",
+    "with",
+    "as",
+    "at",
+    "by",
+    "from",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "this",
+    "that",
+  ]);
+  const tokens = cleaned
+    .split(" ")
+    .map((t) => t.trim())
+    .filter((t) => t && !stop.has(t));
+  return tokens.slice(0, 6).join(" ");
+}
+
+function buildQueryFallbacks(query) {
+  const original = String(query || "").trim();
+  const simplified = simplifyQuery(original);
+  const firstChunk = original.split(/\s+/).slice(0, 5).join(" ").trim();
+  return Array.from(new Set([original, simplified, firstChunk].filter(Boolean)));
+}
+
 function sendSse(res, event, data) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -428,6 +474,16 @@ async function fetchNewsApiByDomains(query, outletList) {
   return fetchGoogleNewsByDomains(query, outletList);
 }
 
+async function fetchNewsApiByDomainsWithRetries(query, outletList) {
+  let combined = [];
+  for (const q of buildQueryFallbacks(query)) {
+    const items = await fetchNewsApiByDomains(q, outletList).catch(() => []);
+    combined = mergeArticlesByUrl(combined, items);
+    if (combined.length >= 3) break;
+  }
+  return pickTopArticles(combined, 12);
+}
+
 function mergeArticlesByUrl(primary, extra) {
   const seen = new Set((primary || []).map((a) => a.url).filter(Boolean));
   const out = [...(primary || [])];
@@ -487,6 +543,16 @@ async function fetchCenterNews(query) {
   });
   picked = mergeArticlesByUrl(picked, rss);
   return pickTopArticles(picked, 14);
+}
+
+async function fetchCenterNewsWithRetries(query) {
+  let combined = [];
+  for (const q of buildQueryFallbacks(query)) {
+    const items = await fetchCenterNews(q).catch(() => []);
+    combined = mergeArticlesByUrl(combined, items);
+    if (combined.length >= 8) break;
+  }
+  return pickTopArticles(combined, 14);
 }
 
 function dedupeByUrlAndTitle(items = [], maxItems = 10) {
@@ -839,19 +905,19 @@ app.get("/api/analyze-stream", async (req, res) => {
     }
 
     sendSse(res, "status", { message: "🕵️ Scanning left-leaning sources..." });
-    const leftPromise = fetchNewsApiByDomains(query, leftOutlets).catch((error) => ({
+    const leftPromise = fetchNewsApiByDomainsWithRetries(query, leftOutlets).catch((error) => ({
       error: error.message,
       items: [],
     }));
 
     sendSse(res, "status", { message: "🕵️ Gathering right-wing perspectives..." });
-    const rightPromise = fetchNewsApiByDomains(query, rightOutlets).catch((error) => ({
+    const rightPromise = fetchNewsApiByDomainsWithRetries(query, rightOutlets).catch((error) => ({
       error: error.message,
       items: [],
     }));
 
     sendSse(res, "status", { message: "🕵️ Checking neutral/center reports..." });
-    const centerPromise = fetchCenterNews(query).catch((error) => ({
+    const centerPromise = fetchCenterNewsWithRetries(query).catch((error) => ({
       error: error.message,
       items: [],
     }));
