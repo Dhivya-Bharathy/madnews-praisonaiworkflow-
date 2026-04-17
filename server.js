@@ -73,6 +73,25 @@ const rightOutlets = [
   { name: "Panchjanya", domain: "panchjanya.com" },
 ];
 
+/** Google News RSS item links are on news.google.com — match center items via <source> like left/right. */
+const centerOutlets = [
+  { name: "NDTV", domain: "ndtv.com" },
+  { name: "The Hindu", domain: "thehindu.com" },
+  { name: "Indian Express", domain: "indianexpress.com" },
+  { name: "The Indian Express", domain: "indianexpress.com" },
+  { name: "Hindustan Times", domain: "hindustantimes.com" },
+  { name: "The Times of India", domain: "timesofindia.indiatimes.com" },
+  { name: "Times of India", domain: "timesofindia.indiatimes.com" },
+  { name: "The Economic Times", domain: "economictimes.indiatimes.com" },
+  { name: "Economic Times", domain: "economictimes.indiatimes.com" },
+  { name: "Mint", domain: "livemint.com" },
+  { name: "Livemint", domain: "livemint.com" },
+  { name: "Business Standard", domain: "business-standard.com" },
+  { name: "Deccan Herald", domain: "deccanherald.com" },
+  { name: "India Today", domain: "indiatoday.in" },
+  { name: "News18", domain: "news18.com" },
+];
+
 const knownDomains = new Set(
   [...leftOutlets, ...rightOutlets].map((outlet) => outlet.domain)
 );
@@ -333,30 +352,6 @@ async function fetchGoogleNewsByDomains(query, outletList) {
   );
 }
 
-async function fetchGoogleNewsCenter(query) {
-  const q = `${query} India when:7d`;
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
-    q
-  )}&hl=en-IN&gl=IN&ceid=IN:en`;
-  const response = await fetchWithTimeout(url);
-  if (!response.ok) {
-    throw new Error(`Google News center RSS failed: ${response.status}`);
-  }
-  const xml = await response.text();
-  return pickTopArticles(
-    parseGoogleNewsRss(xml).filter((item) => {
-      const host = getHostFromUrl(item.url);
-      return (
-        host &&
-        !knownDomains.has(host) &&
-        !isBlockedCenterHost(host) &&
-        isAcceptableCenterHost(host) &&
-        !isLowQualityArticleTitle(item?.title)
-      );
-    })
-  );
-}
-
 /** India top-headlines: real publisher URLs, good when /everything is sparse. */
 async function fetchNewsApiTopHeadlinesIndia(query, pageSize = 30) {
   const key = process.env.NEWS_API_KEY;
@@ -533,14 +528,7 @@ async function fetchCenterNews(query) {
     return pickTopArticles(picked, 14);
   }
 
-  const rss = (await fetchGoogleNewsCenter(query).catch(() => [])).filter((item) => {
-    const host = getHostFromUrl(item?.url);
-    return (
-      host &&
-      isAcceptableCenterHost(host) &&
-      !isLowQualityArticleTitle(item?.title)
-    );
-  });
+  const rss = await fetchGoogleNewsByDomains(query, centerOutlets).catch(() => []);
   picked = mergeArticlesByUrl(picked, rss);
   return pickTopArticles(picked, 14);
 }

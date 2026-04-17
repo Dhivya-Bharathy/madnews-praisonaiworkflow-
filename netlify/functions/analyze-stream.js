@@ -22,6 +22,25 @@ const rightOutlets = [
   { name: "Panchjanya", domain: "panchjanya.com" },
 ];
 
+/** Major center outlets — Google News RSS uses news.google.com links; match via <source> like left/right. */
+const centerOutlets = [
+  { name: "NDTV", domain: "ndtv.com" },
+  { name: "The Hindu", domain: "thehindu.com" },
+  { name: "Indian Express", domain: "indianexpress.com" },
+  { name: "The Indian Express", domain: "indianexpress.com" },
+  { name: "Hindustan Times", domain: "hindustantimes.com" },
+  { name: "The Times of India", domain: "timesofindia.indiatimes.com" },
+  { name: "Times of India", domain: "timesofindia.indiatimes.com" },
+  { name: "The Economic Times", domain: "economictimes.indiatimes.com" },
+  { name: "Economic Times", domain: "economictimes.indiatimes.com" },
+  { name: "Mint", domain: "livemint.com" },
+  { name: "Livemint", domain: "livemint.com" },
+  { name: "Business Standard", domain: "business-standard.com" },
+  { name: "Deccan Herald", domain: "deccanherald.com" },
+  { name: "India Today", domain: "indiatoday.in" },
+  { name: "News18", domain: "news18.com" },
+];
+
 const knownDomains = new Set(
   [...leftOutlets, ...rightOutlets].map((outlet) => outlet.domain)
 );
@@ -328,53 +347,6 @@ async function fetchGoogleNewsByDomains(query, outletList) {
   );
 }
 
-async function fetchGoogleNewsCenter(query) {
-  const q = `${query} India when:7d`;
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
-    q
-  )}&hl=en-IN&gl=IN&ceid=IN:en`;
-  const response = await fetchWithTimeout(url);
-  if (!response.ok) return [];
-  const xml = await response.text();
-  return pickTopArticles(
-    parseGoogleNewsRss(xml).filter((item) => {
-      const host = getHostFromUrl(item.url);
-      return host && isAcceptableCenterHost(host) && !isLowQualityArticleTitle(item?.title);
-    }),
-    14
-  );
-}
-
-async function fetchGoogleNewsCenterByTrustedDomains(query) {
-  const preferredDomains = [
-    "ndtv.com",
-    "thehindu.com",
-    "indianexpress.com",
-    "hindustantimes.com",
-    "timesofindia.indiatimes.com",
-    "livemint.com",
-    "deccanherald.com",
-    "business-standard.com",
-  ];
-  const siteQuery = preferredDomains.map((d) => `site:${d}`).join(" OR ");
-  const q = `${query} India (${siteQuery}) when:10d`;
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
-    q
-  )}&hl=en-IN&gl=IN&ceid=IN:en`;
-  const response = await fetchWithTimeout(url);
-  if (!response.ok) return [];
-  const xml = await response.text();
-  return pickTopArticles(
-    parseGoogleNewsRss(xml)
-      .filter((item) => {
-        const host = getHostFromUrl(item.url);
-        return host && isAcceptableCenterHost(host) && !isLowQualityArticleTitle(item?.title);
-      })
-      .map((item) => mapArticle(item, item.outlet)),
-    14
-  );
-}
-
 async function fetchNewsApiByDomains(query, outletList) {
   const key = process.env.NEWS_API_KEY;
   if (!key) {
@@ -472,7 +444,7 @@ async function fetchCenterNews(query) {
     return picked;
   }
 
-  const rss = await fetchGoogleNewsCenter(query).catch(() => []);
+  const rss = await fetchGoogleNewsByDomains(query, centerOutlets).catch(() => []);
   picked = mergeArticlesByUrl(picked, rss);
   return pickTopArticles(picked, 14);
 }
@@ -509,21 +481,17 @@ async function fetchCenterNewsHardFallback(query) {
     if (merged.length >= 10) return merged.slice(0, 14);
   }
 
-  const [headlinesNoQuery, headlinesPolitics, rssPolitics] = await Promise.all([
+  const [headlinesNoQuery, headlinesPolitics, rssPolitics, rssQuery] = await Promise.all([
     fetchNewsApiTopHeadlinesIndia("", 50).catch(() => []),
     fetchNewsApiTopHeadlinesIndia("India politics", 50).catch(() => []),
-    fetchGoogleNewsCenter("India politics").catch(() => []),
-  ]);
-  const [rssTrustedPolitics, rssTrustedQuery] = await Promise.all([
-    fetchGoogleNewsCenterByTrustedDomains("India politics").catch(() => []),
-    fetchGoogleNewsCenterByTrustedDomains(simplifyQuery(query) || "India").catch(() => []),
+    fetchGoogleNewsByDomains("India politics", centerOutlets).catch(() => []),
+    fetchGoogleNewsByDomains(simplifyQuery(query) || "India", centerOutlets).catch(() => []),
   ]);
 
   merged = mergeArticlesByUrl(merged, headlinesNoQuery);
   merged = mergeArticlesByUrl(merged, headlinesPolitics);
   merged = mergeArticlesByUrl(merged, rssPolitics);
-  merged = mergeArticlesByUrl(merged, rssTrustedPolitics);
-  merged = mergeArticlesByUrl(merged, rssTrustedQuery);
+  merged = mergeArticlesByUrl(merged, rssQuery);
   return merged.slice(0, 14);
 }
 
