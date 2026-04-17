@@ -169,6 +169,19 @@ def curate_with_praison(
     return cleaned if cleaned else candidates[:max_items]
 
 
+@app.get("/")
+def root() -> dict[str, Any]:
+    """Browser-friendly root: there is no HTML UI; use /health or POST /v1/collect."""
+    return {
+        "service": "madnews-praison-collector",
+        "ok": True,
+        "try": {
+            "health": "/health",
+            "collect": "POST /v1/collect (JSON body: query, perspective, domains, max_items)",
+        },
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "praison-news"}
