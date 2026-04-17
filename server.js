@@ -646,6 +646,7 @@ async function fetchTrendingGlobalHeadlines(maxItems = 12) {
   if (!key) return [];
 
   const attempts = [
+    { sources: "bbc-news" },
     { sources: "bbc-news,reuters,associated-press" },
     { sources: "bbc-news,associated-press" },
     { sources: "reuters" },
@@ -659,6 +660,41 @@ async function fetchTrendingGlobalHeadlines(maxItems = 12) {
     if (dedupeByUrlAndTitle(flat, maxItems + 2).length >= maxItems) break;
   }
   return dedupeByUrlAndTitle(flat, maxItems);
+}
+
+/** Broad English world desk stories when top-headlines/sources are empty (common on some API plans). */
+async function fetchWorldEverythingTopStories(maxItems = 14) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) return [];
+
+  const url = new URL("https://newsapi.org/v2/everything");
+  url.searchParams.set(
+    "q",
+    '("United Nations" OR NATO OR diplomacy OR geopolitics OR ceasefire OR sanctions OR "foreign policy" OR summit OR conflict) NOT cricket NOT bollywood NOT IPL'
+  );
+  url.searchParams.set("language", "en");
+  url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("pageSize", "36");
+  url.searchParams.set("apiKey", key);
+
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === "error") return [];
+    const articles = Array.isArray(data.articles) ? data.articles : [];
+    const mapped = articles
+      .map((article) => mapArticle(article, article?.source?.name))
+      .filter(
+        (item) =>
+          item.title &&
+          item.url &&
+          !isLowQualityArticleTitle(item.title)
+      );
+    return dedupeByUrlAndTitle(mapped, maxItems);
+  } catch {
+    return [];
+  }
 }
 
 function prioritizeNationalPoliticsFirst(items = []) {
@@ -762,6 +798,7 @@ app.get("/api/top-stories", async (_req, res) => {
       trendingWorld,
       bucketNational,
       bucketGeo,
+      worldEverything,
     ] = await Promise.all([
       fetchTrendingIndiaHeadlines(14),
       fetchTrendingGlobalHeadlines(14),
@@ -800,6 +837,7 @@ app.get("/api/top-stories", async (_req, res) => {
           "conflict",
         ]
       ),
+      fetchWorldEverythingTopStories(14),
     ]);
 
     let national = dedupeByUrlAndTitle(
@@ -807,7 +845,11 @@ app.get("/api/top-stories", async (_req, res) => {
       10
     );
     let geopolitical = dedupeByUrlAndTitle(
-      prioritizeGeopoliticalFirst([...trendingWorld, ...bucketGeo]),
+      prioritizeGeopoliticalFirst([
+        ...trendingWorld,
+        ...bucketGeo,
+        ...worldEverything,
+      ]),
       10
     );
 
@@ -817,6 +859,15 @@ app.get("/api/top-stories", async (_req, res) => {
     if (!geopolitical.length) {
       geopolitical = await fetchGoogleNewsTopicUS(
         "world geopolitics diplomacy conflict UN NATO",
+        10
+      );
+    }
+    if (!geopolitical.length) {
+      geopolitical = await fetchGoogleNewsTopicUS("international news", 10);
+    }
+    if (!geopolitical.length) {
+      geopolitical = await fetchGoogleNewsTopic(
+        "world news UN security council global affairs",
         10
       );
     }
@@ -1045,6 +1096,26 @@ app.get("/api/analyze-stream", async (req, res) => {
     ]);
     left = filterArticleList(leftEnriched);
     right = filterArticleList(rightEnriched);
+
+    const broadQuery = simplifyQuery(query) || "India politics";
+    if (left.length < 2) {
+      sendSse(res, "status", { message: "Boosting left coverage from Google News fallback..." });
+      left = filterArticleList(
+        mergeArticlesByUrl(
+          left,
+          await fetchGoogleNewsByDomains(broadQuery, leftOutlets).catch(() => [])
+        )
+      );
+    }
+    if (right.length < 2) {
+      sendSse(res, "status", { message: "Boosting right coverage from Google News fallback..." });
+      right = filterArticleList(
+        mergeArticlesByUrl(
+          right,
+          await fetchGoogleNewsByDomains(broadQuery, rightOutlets).catch(() => [])
+        )
+      );
+    }
 
     const sourceErrors = [leftRaw, rightRaw, centerRaw]
       .filter((result) => result && result.error)

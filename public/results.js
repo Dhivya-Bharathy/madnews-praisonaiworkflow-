@@ -23,6 +23,19 @@ const rightIgnores = document.getElementById("right-ignores");
 
 let lastServerStatus = "";
 
+/** Strip wrapping quotes from ?q= so pasted headlines do not break searches. */
+function normalizeQueryParam(raw) {
+  let s = String(raw || "").trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'")) ||
+    (s.startsWith("“") && s.endsWith("”"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.replace(/\s+/g, " ");
+}
+
 function resetStatusUi() {
   lastServerStatus = "";
   statusMsg.textContent = "Starting: fetching headlines from sources…";
@@ -318,7 +331,9 @@ form.addEventListener("submit", (event) => {
   runAnalysis(query);
 });
 
-const initialQuery = new URLSearchParams(window.location.search).get("q") || "";
+const initialQuery = normalizeQueryParam(
+  new URLSearchParams(window.location.search).get("q") || ""
+);
 if (initialQuery.trim()) {
   input.value = initialQuery.trim();
   runAnalysis(initialQuery.trim());

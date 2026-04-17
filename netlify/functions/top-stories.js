@@ -1,4 +1,4 @@
-const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 9000);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 12000);
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -188,6 +188,7 @@ async function fetchTrendingGlobalHeadlines(maxItems = 12) {
   if (!key) return [];
 
   const attempts = [
+    { sources: "bbc-news" },
     { sources: "bbc-news,reuters,associated-press" },
     { sources: "bbc-news,associated-press" },
     { sources: "reuters" },
@@ -201,6 +202,38 @@ async function fetchTrendingGlobalHeadlines(maxItems = 12) {
     if (dedupeByUrlAndTitle(flat, maxItems + 2).length >= maxItems) break;
   }
   return dedupeByUrlAndTitle(flat, maxItems);
+}
+
+async function fetchWorldEverythingTopStories(maxItems = 14) {
+  const key = process.env.NEWS_API_KEY;
+  if (!key) return [];
+
+  const url = new URL("https://newsapi.org/v2/everything");
+  url.searchParams.set(
+    "q",
+    '("United Nations" OR NATO OR diplomacy OR geopolitics OR ceasefire OR sanctions OR "foreign policy" OR summit OR conflict) NOT cricket NOT bollywood NOT IPL'
+  );
+  url.searchParams.set("language", "en");
+  url.searchParams.set("sortBy", "publishedAt");
+  url.searchParams.set("pageSize", "36");
+  url.searchParams.set("apiKey", key);
+
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (data?.status === "error") return [];
+    const articles = Array.isArray(data.articles) ? data.articles : [];
+    const mapped = articles
+      .map((article) => mapArticle(article, article?.source?.name))
+      .filter(
+        (item) =>
+          item.title && item.url && !isLowQualityArticleTitle(item.title)
+      );
+    return dedupeByUrlAndTitle(mapped, maxItems);
+  } catch {
+    return [];
+  }
 }
 
 function prioritizeNationalPoliticsFirst(items = []) {
@@ -229,52 +262,58 @@ function prioritizeGeopoliticalFirst(items = []) {
 
 export async function handler() {
   try {
-    const [trendingIn, trendingWorld, bucketNational, bucketGeo] = await Promise.all([
-      fetchTrendingIndiaHeadlines(14),
-      fetchTrendingGlobalHeadlines(14),
-      fetchTopStoriesBucket(
-        "India politics OR parliament OR election OR policy OR supreme court",
-        10,
-        [
-          "election",
-          "parliament",
-          "assembly",
-          "government",
-          "supreme court",
-          "minister",
-          "bill",
-          "policy",
-          "bjp",
-          "congress",
-        ]
-      ),
-      fetchTopStoriesBucket(
-        "India foreign policy OR diplomacy OR border OR geopolitical OR UN",
-        10,
-        [
-          "foreign policy",
-          "diplomatic",
-          "geopolitical",
-          "geopolitics",
-          "border",
-          "china",
-          "pakistan",
-          "united nations",
-          "un ",
-          "sanction",
-          "war",
-          "ceasefire",
-          "conflict",
-        ]
-      ),
-    ]);
+    const [trendingIn, trendingWorld, bucketNational, bucketGeo, worldEverything] =
+      await Promise.all([
+        fetchTrendingIndiaHeadlines(14),
+        fetchTrendingGlobalHeadlines(14),
+        fetchTopStoriesBucket(
+          "India politics OR parliament OR election OR policy OR supreme court",
+          10,
+          [
+            "election",
+            "parliament",
+            "assembly",
+            "government",
+            "supreme court",
+            "minister",
+            "bill",
+            "policy",
+            "bjp",
+            "congress",
+          ]
+        ),
+        fetchTopStoriesBucket(
+          "India foreign policy OR diplomacy OR border OR geopolitical OR UN",
+          10,
+          [
+            "foreign policy",
+            "diplomatic",
+            "geopolitical",
+            "geopolitics",
+            "border",
+            "china",
+            "pakistan",
+            "united nations",
+            "un ",
+            "sanction",
+            "war",
+            "ceasefire",
+            "conflict",
+          ]
+        ),
+        fetchWorldEverythingTopStories(14),
+      ]);
 
     let national = dedupeByUrlAndTitle(
       prioritizeNationalPoliticsFirst([...trendingIn, ...bucketNational]),
       10
     );
     let geopolitical = dedupeByUrlAndTitle(
-      prioritizeGeopoliticalFirst([...trendingWorld, ...bucketGeo]),
+      prioritizeGeopoliticalFirst([
+        ...trendingWorld,
+        ...bucketGeo,
+        ...worldEverything,
+      ]),
       10
     );
 
@@ -284,6 +323,15 @@ export async function handler() {
     if (!geopolitical.length) {
       geopolitical = await fetchGoogleNewsTopicUS(
         "world geopolitics diplomacy conflict UN NATO",
+        10
+      );
+    }
+    if (!geopolitical.length) {
+      geopolitical = await fetchGoogleNewsTopicUS("international news", 10);
+    }
+    if (!geopolitical.length) {
+      geopolitical = await fetchGoogleNewsTopic(
+        "world news UN security council global affairs",
         10
       );
     }

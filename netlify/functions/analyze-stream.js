@@ -425,6 +425,25 @@ async function fetchNewsApiByDomainsWithRetries(query, outletList) {
   return merged.slice(0, 12);
 }
 
+/** When domain-specific search is sparse, pull same outlets from a broad India query (matches local server.js). */
+async function enrichPartisanFromBroad(query, outletList, currentList, minItems = 2) {
+  const cur = currentList || [];
+  if (cur.length >= minItems) return cur;
+  const broad = await fetchNewsApiEverything(String(query || "").trim() || "India", 50).catch(() => []);
+  const domains = new Set(outletList.map((o) => o.domain));
+  const byDomain = new Map(outletList.map((o) => [o.domain, o.name]));
+  const extra = pickTopArticles(
+    broad
+      .filter((article) => domains.has(getHostFromUrl(article?.url)))
+      .map((article) => {
+        const domain = getHostFromUrl(article?.url);
+        return mapArticle(article, byDomain.get(domain));
+      }),
+    12
+  );
+  return mergeArticlesByUrl(cur, extra);
+}
+
 async function fetchCenterNews(query) {
   const rawEverything = await fetchNewsApiEverything(query, 80).catch(() => []);
   let picked = pickTopArticles(
@@ -702,6 +721,30 @@ export async function handler(event) {
     const centerPromise = fetchCenterNewsWithRetries(query);
 
     const [left, right, center] = await Promise.all([leftPromise, rightPromise, centerPromise]);
+
+    const [leftEnriched, rightEnriched] = await Promise.all([
+      enrichPartisanFromBroad(query, leftOutlets, left),
+      enrichPartisanFromBroad(query, rightOutlets, right),
+    ]);
+
+    let leftResolved = pickTopArticles(leftEnriched, 12);
+    let rightResolved = pickTopArticles(rightEnriched, 12);
+    const broadQuery = simplifyQuery(query) || "India politics";
+    if (leftResolved.length < 2) {
+      events.push(toSseEvent("status", { message: "Boosting left coverage from Google News fallback..." }));
+      leftResolved = mergeArticlesByUrl(
+        leftResolved,
+        await fetchGoogleNewsByDomains(broadQuery, leftOutlets).catch(() => [])
+      ).slice(0, 12);
+    }
+    if (rightResolved.length < 2) {
+      events.push(toSseEvent("status", { message: "Boosting right coverage from Google News fallback..." }));
+      rightResolved = mergeArticlesByUrl(
+        rightResolved,
+        await fetchGoogleNewsByDomains(broadQuery, rightOutlets).catch(() => [])
+      ).slice(0, 12);
+    }
+
     let centerResolved = center;
     if (centerResolved.length < 3) {
       events.push(toSseEvent("status", { message: "Boosting center coverage with broader India fallback..." }));
@@ -709,7 +752,7 @@ export async function handler(event) {
       centerResolved = mergeArticlesByUrl(centerResolved, centerBackfill).slice(0, 14);
     }
 
-    const groupedArticles = { LEFT: left, CENTER: centerResolved, RIGHT: right };
+    const groupedArticles = { LEFT: leftResolved, CENTER: centerResolved, RIGHT: rightResolved };
 
     if (!left.length && !center.length && !right.length) {
       const emptyPayload = {
