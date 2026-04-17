@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thin Line - Left|Right|Center</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="logo" aria-label="Thin Line">
+        <span class="logo-main">Thin</span>
+        <span class="logo-divider">|</span>
+        <span class="logo-main">Line</span>
+      </div>
+      <nav class="switches" aria-label="perspective order">
+        <span>LEFT</span>
+        <span>CENTER</span>
+        <span>RIGHT</span>
+      </nav>
+    </header>
+
+    <main class="hero">
+      <h1>Where every side <span>counts</span></h1>
+      <p>
+        Search any news topic and get perspectives from left, right and
+        center-leaning Indian media outlets — with blind spot analysis.
+      </p>
+
+      <form id="analyze-form" class="search-wrap" action="/results.html" method="get">
+        <div class="search-input-wrap">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input
+            id="search-input"
+            name="q"
+            type="text"
+            placeholder="Search any news topic"
+            autocomplete="off"
+            required
+          />
+        </div>
+        <button id="analyze-btn" type="submit">Analyze</button>
+      </form>
+
+      <section class="trending-topics" aria-label="Example searches">
+        <p>EXAMPLE SEARCHES</p>
+        <div class="topic-chips">
+          <button type="button" class="chip">Waqf Amendment Bill</button>
+          <button type="button" class="chip">India GDP Growth 2026</button>
+          <button type="button" class="chip">UCC Implementation</button>
+          <button type="button" class="chip">ISRO Gaganyaan</button>
+          <button type="button" class="chip">India-Canada Diplomatic Row</button>
+          <button type="button" class="chip">Farm Laws Debate</button>
+          <button type="button" class="chip">Delhi Air Pollution</button>
+          <button type="button" class="chip">One Nation One Election</button>
+        </div>
+      </section>
+
+    </main>
+
+    <script type="module" src="/home.js"></script>
+  </body>
+</html>

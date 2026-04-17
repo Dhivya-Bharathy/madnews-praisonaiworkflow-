@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thin Line - Left|Right|Center</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="logo" aria-label="Thin Line">
+        <span class="logo-main">Thin</span>
+        <span class="logo-divider">|</span>
+        <span class="logo-main">Line</span>
+      </a>
+      <nav class="switches" aria-label="perspective order">
+        <span>LEFT</span>
+        <span>CENTER</span>
+        <span>RIGHT</span>
+      </nav>
+    </header>
+
+    <main class="hero">
+      <form id="analyze-form" class="search-wrap">
+        <div class="search-input-wrap">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input
+            id="search-input"
+            name="q"
+            type="text"
+            placeholder="Search any news topic"
+            autocomplete="off"
+            required
+          />
+        </div>
+        <button id="analyze-btn" type="submit">Analyze</button>
+      </form>
+
+      <section id="loading-panel" class="loading-panel hidden" aria-live="polite">
+        <p id="fetch-msg" class="fetch-msg"></p>
+        <p id="status-msg" class="status-msg"></p>
+      </section>
+
+      <section id="empty-state" class="empty-state hidden" role="status">
+        <p id="empty-state-title" class="empty-state-title"></p>
+        <p id="empty-state-text" class="empty-state-text"></p>
+        <p id="empty-state-hint" class="empty-state-hint hidden" aria-live="polite"></p>
+      </section>
+
+      <section id="results" class="results hidden">
+        <div class="col left">
+          <h2>LEFT</h2>
+          <ul id="left-list"></ul>
+        </div>
+        <div class="col center">
+          <h2>CENTER</h2>
+          <ul id="center-list"></ul>
+        </div>
+        <div class="col right">
+          <h2>RIGHT</h2>
+          <ul id="right-list"></ul>
+        </div>
+      </section>
+
+      <section id="blind-spots" class="blind-spots hidden">
+        <h3>Blind Spots</h3>
+        <div class="blind-grid">
+          <div>
+            <h4>What LEFT may ignore</h4>
+            <ul id="left-ignores"></ul>
+          </div>
+          <div>
+            <h4>What CENTER may ignore</h4>
+            <ul id="center-ignores"></ul>
+          </div>
+          <div>
+            <h4>What RIGHT may ignore</h4>
+            <ul id="right-ignores"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/results.js"></script>
+  </body>
+</html>
