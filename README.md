@@ -55,3 +55,8 @@ The image runs `uvicorn` on `0.0.0.0` and respects the `PORT` env var hosts ofte
 After deploy, paste the **public origin** (scheme + host, no path) into Netlify as `PRAISON_SERVICE_URL`, trigger a new deploy, and analysis should match your local setup.
 
 **502 on analyze after enabling Praison:** Netlify functions have a **short wall-clock limit** (often ~10s on free). The app **caps Praison calls to ~5s each** and **~7.5s total** for the three parallel requests when running as a Netlify function. If Render is cold-starting, Praison may add nothing that run—analysis still completes. For heavier Praison use, upgrade Netlify (longer function limit) or temporarily **remove `PRAISON_SERVICE_URL`** from Netlify to confirm the 502 was timeout-related.
+
+### Phase 1 precompute mode
+
+The Praison service now exposes `GET /v1/precomputed-topics` with a short in-memory cache (default 10 minutes via `PRAISON_PRECOMPUTE_TTL_SECONDS`).  
+`/api/top-stories` in both local server and Netlify function reads this precomputed feed first, then falls back to the existing NewsAPI/RSS flow.

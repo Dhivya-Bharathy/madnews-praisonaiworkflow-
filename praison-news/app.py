@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -32,6 +34,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+PRECOMPUTE_TTL_SECONDS = int(os.getenv("PRAISON_PRECOMPUTE_TTL_SECONDS", "600"))
+PRECOMPUTE_BUILD_BUDGET_SECONDS = float(os.getenv("PRAISON_PRECOMPUTE_BUILD_BUDGET_SECONDS", "4.0"))
+_cache_lock = threading.Lock()
+_precomputed_topics_cache: dict[str, Any] = {
+    "generatedAt": "",
+    "expiresAtEpochMs": 0,
+    "national": [],
+    "geopolitical": [],
+}
+
 
 class CollectRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
@@ -47,7 +59,13 @@ def _host(url: str) -> str:
         return ""
 
 
-def ddg_collect(query: str, domains: list[str], per_query: int = 6) -> list[dict[str, Any]]:
+def ddg_collect(
+    query: str,
+    domains: list[str],
+    per_query: int = 6,
+    locale_suffix: str = "news India",
+    deadline_epoch_s: float | None = None,
+) -> list[dict[str, Any]]:
     """Gather candidate news rows from DuckDuckGo (no LLM)."""
     q = query.strip()
     if not q:
@@ -57,14 +75,18 @@ def ddg_collect(query: str, domains: list[str], per_query: int = 6) -> list[dict
         d = d.strip().lower()
         if d:
             queries.append(f"site:{d} {q}")
-    queries.append(f"{q} news India")
+    queries.append(f"{q} {locale_suffix}".strip())
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     try:
         ddgs = DDGS()
         for sq in queries:
+            if deadline_epoch_s and time.time() >= deadline_epoch_s:
+                break
             try:
                 for r in ddgs.text(sq, max_results=per_query):
+                    if deadline_epoch_s and time.time() >= deadline_epoch_s:
+                        break
                     href = (r.get("href") or r.get("url") or "").strip()
                     if not href.startswith("http"):
                         continue
@@ -92,6 +114,31 @@ def ddg_collect(query: str, domains: list[str], per_query: int = 6) -> list[dict
     except Exception:
         return out
     return out[:40]
+
+
+def _dedupe_by_url_and_title(items: list[dict[str, Any]], max_items: int = 10) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for item in items or []:
+        title = str(item.get("title") or "").strip()
+        url = str(item.get("url") or "").strip()
+        if not title or not url:
+            continue
+        key = f"{url.lower()}::{title.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "title": title[:300],
+                "url": url,
+                "outlet": str(item.get("outlet") or _host(url) or "Unknown").strip()[:120],
+                "publishedAt": str(item.get("publishedAt") or "").strip(),
+            }
+        )
+        if len(out) >= max_items:
+            break
+    return out
 
 
 def _strip_json_array(text: str) -> list[dict[str, Any]]:
@@ -169,6 +216,69 @@ def curate_with_praison(
     return cleaned if cleaned else candidates[:max_items]
 
 
+def _build_precomputed_topics() -> dict[str, Any]:
+    """Low-latency cached feed for homepage cards."""
+    deadline = time.time() + PRECOMPUTE_BUILD_BUDGET_SECONDS
+    national_queries = [
+        "India parliament election policy latest news",
+        "India one nation one election latest updates",
+        "Waqf amendment bill India latest",
+    ]
+    geopolitical_queries = [
+        "India foreign policy geopolitics latest news",
+        "India China border diplomatic latest",
+        "UN Gaza Ukraine geopolitics latest",
+    ]
+
+    national_rows: list[dict[str, Any]] = []
+    for q in national_queries:
+        if time.time() >= deadline:
+            break
+        national_rows.extend(
+            ddg_collect(q, [], per_query=6, locale_suffix="news India", deadline_epoch_s=deadline)
+        )
+
+    geopolitical_rows: list[dict[str, Any]] = []
+    for q in geopolitical_queries:
+        if time.time() >= deadline:
+            break
+        geopolitical_rows.extend(
+            ddg_collect(q, [], per_query=6, locale_suffix="news", deadline_epoch_s=deadline)
+        )
+
+    national = _dedupe_by_url_and_title(national_rows, 10)
+    geopolitical = _dedupe_by_url_and_title(geopolitical_rows, 10)
+    now_ms = int(time.time() * 1000)
+    return {
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ms / 1000)),
+        "expiresAtEpochMs": now_ms + PRECOMPUTE_TTL_SECONDS * 1000,
+        "national": national,
+        "geopolitical": geopolitical,
+    }
+
+
+def get_precomputed_topics(force_refresh: bool = False) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    with _cache_lock:
+        expires = int(_precomputed_topics_cache.get("expiresAtEpochMs") or 0)
+        has_data = bool(_precomputed_topics_cache.get("national") or _precomputed_topics_cache.get("geopolitical"))
+        if not force_refresh and has_data and now_ms < expires:
+            return {
+                "generatedAt": _precomputed_topics_cache.get("generatedAt", ""),
+                "national": list(_precomputed_topics_cache.get("national") or []),
+                "geopolitical": list(_precomputed_topics_cache.get("geopolitical") or []),
+                "cached": True,
+            }
+        fresh = _build_precomputed_topics()
+        _precomputed_topics_cache.update(fresh)
+    return {
+        "generatedAt": fresh.get("generatedAt", ""),
+        "national": list(fresh.get("national") or []),
+        "geopolitical": list(fresh.get("geopolitical") or []),
+        "cached": False,
+    }
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     """Browser-friendly root: there is no HTML UI; use /health or POST /v1/collect."""
@@ -185,6 +295,18 @@ def root() -> dict[str, Any]:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "praison-news"}
+
+
+@app.get("/v1/precomputed-topics")
+def precomputed_topics(refresh: bool = False) -> dict[str, Any]:
+    """Cached topic cards endpoint for low-latency Netlify reads."""
+    payload = get_precomputed_topics(force_refresh=refresh)
+    return {
+        "generatedAt": payload["generatedAt"],
+        "national": payload["national"],
+        "geopolitical": payload["geopolitical"],
+        "meta": {"source": "praison-precompute-cache", "cached": payload["cached"]},
+    }
 
 
 @app.post("/v1/collect")

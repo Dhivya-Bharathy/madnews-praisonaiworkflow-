@@ -820,6 +820,31 @@ async function fetchGoogleNewsTopicUS(query, maxItems = 10) {
   return dedupeByUrlAndTitle(parseGoogleNewsRss(xml), maxItems);
 }
 
+async function fetchPraisonPrecomputedTopics() {
+  const base = String(process.env.PRAISON_SERVICE_URL || "").trim();
+  if (!base) return null;
+  const url = `${base.replace(/\/$/, "")}/v1/precomputed-topics`;
+  try {
+    const response = await fetchWithTimeout(url, {}, 1800);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const national = dedupeByUrlAndTitle(Array.isArray(data?.national) ? data.national : [], 10);
+    const geopolitical = dedupeByUrlAndTitle(
+      Array.isArray(data?.geopolitical) ? data.geopolitical : [],
+      10
+    );
+    if (!national.length && !geopolitical.length) return null;
+    return {
+      national,
+      geopolitical,
+      generatedAt: String(data?.generatedAt || "").trim() || new Date().toISOString(),
+      source: "praison-precomputed",
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildAnalysisPrompt(searchQuery, groupedArticles) {
   const sourceCatalog = {
     LEFT: (groupedArticles.LEFT || []).map((item) => `${item.outlet} - ${item.title}`),
@@ -881,6 +906,20 @@ Return ONLY valid JSON using this exact schema:
 
 app.get("/api/top-stories", async (_req, res) => {
   try {
+    const precomputed = await fetchPraisonPrecomputedTopics();
+    if (precomputed) {
+      res.set(
+        "Cache-Control",
+        "public, max-age=60, s-maxage=60, stale-while-revalidate=120"
+      );
+      return res.json({
+        national: precomputed.national,
+        geopolitical: precomputed.geopolitical,
+        generatedAt: precomputed.generatedAt,
+        meta: { source: precomputed.source },
+      });
+    }
+
     const [
       trendingIn,
       trendingWorld,
@@ -968,6 +1007,7 @@ app.get("/api/top-stories", async (_req, res) => {
       national,
       geopolitical,
       generatedAt: new Date().toISOString(),
+      meta: { source: "newsapi-rss" },
     });
   } catch (error) {
     return res.status(500).json({
