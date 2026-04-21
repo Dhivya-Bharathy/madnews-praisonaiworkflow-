@@ -13,7 +13,7 @@ const triContext = document.getElementById("tri-context");
 const triIntro = document.getElementById("tri-intro");
 const triStatus = document.getElementById("tri-status");
 /** Mirrors server DEFAULT_NEWS_TOPIC until /api/config loads (Render + localhost). */
-let resolvedDefaultTopic = "India politics";
+let resolvedDefaultTopic = "India Politics";
 const leftSummary = document.getElementById("left-summary");
 const centerSummary = document.getElementById("center-summary");
 const rightSummary = document.getElementById("right-summary");
@@ -362,7 +362,7 @@ async function loadUiConfig() {
       triIntro.textContent = c.perspectivesNote.trim();
     }
   } catch {
-    resolvedDefaultTopic = "India politics";
+    resolvedDefaultTopic = "India Politics";
     if (topicInput && !topicInput.value.trim()) topicInput.value = resolvedDefaultTopic;
     if (triIntro && !triIntro.textContent)
       triIntro.textContent =

@@ -32,7 +32,7 @@ DDGS_COLLECT_TIMEOUT = float(os.getenv("PRAISON_DDGS_COLLECT_TIMEOUT", "45"))
 DDGS_MADNEWS_TOTAL_TIMEOUT = float(os.getenv("PRAISON_DDGS_MADNEWS_TOTAL_TIMEOUT", "120"))
 # politics-first product default; set NEWS_FOCUS=general for open-ended topics (same on Render via env).
 NEWS_FOCUS_MODE = (os.getenv("NEWS_FOCUS") or "politics").strip().lower()
-DEFAULT_NEWS_TOPIC = (os.getenv("DEFAULT_NEWS_TOPIC") or "India politics").strip() or "India politics"
+DEFAULT_NEWS_TOPIC = (os.getenv("DEFAULT_NEWS_TOPIC") or "India Politics").strip() or "India Politics"
 
 LEFT_DOMAINS = [
     "theprint.in",
@@ -128,7 +128,8 @@ def _topic_for_political_search(raw: str) -> str:
     if not t:
         return t
     # Common default / user phrasing that collides with the motorcycle brand name.
-    t = re.sub(r"(?is)\bindian\s+politics\b", "India politics parliament election", t)
+    t = re.sub(r"(?is)\bindian\s+politics\b", "India Politics parliament election", t)
+    t = re.sub(r"(?is)\bindia\s+politics\b", "India Politics parliament election", t)
     t = re.sub(r"(?is)\bindian\s+government\b", "India government parliament", t)
     return t
 

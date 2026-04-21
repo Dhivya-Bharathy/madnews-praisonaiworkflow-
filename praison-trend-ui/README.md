@@ -30,7 +30,7 @@ Optional timeouts (seconds) if DuckDuckGo is slow: `PRAISON_DDGS_LATEST_TIMEOUT`
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `NEWS_FOCUS` | `politics` | Search/curation bias toward Indian political news. Set to `general` for open-ended topics. |
-| `DEFAULT_NEWS_TOPIC` | `India politics` | Default headline topic (uses “India” to avoid DDG matching “Indian” to the motorcycle brand). |
+| `DEFAULT_NEWS_TOPIC` | `India Politics` | Default topic in the UI and API (wording avoids “Indian politics” → motorcycle brand confusion in search). |
 | `PRAISON_FAST_MODE` | `1` | Faster DDG limits; Perspectives still fills narrative text from article titles/snippets when the API key is absent. |
 
 The browser loads defaults from **`GET /api/config`** so production env vars control the topic field without rebuilding static files.
