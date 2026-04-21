@@ -1,0 +1,355 @@
+const form = document.getElementById("topic-form");
+const topicInput = document.getElementById("topic-input");
+const newsList = document.getElementById("news-list");
+const statusEl = document.getElementById("status");
+const analysisWrap = document.getElementById("analysis-wrap");
+const loadBtn = document.getElementById("load-btn");
+const themeToggle = document.getElementById("theme-toggle");
+const mainTabs = document.getElementById("main-tabs");
+const panelHeadlines = document.getElementById("panel-headlines");
+const panelPerspectives = document.getElementById("panel-perspectives");
+const panelCrawl = document.getElementById("panel-crawl");
+const triContext = document.getElementById("tri-context");
+const triStatus = document.getElementById("tri-status");
+const leftSummary = document.getElementById("left-summary");
+const centerSummary = document.getElementById("center-summary");
+const rightSummary = document.getElementById("right-summary");
+const leftLinks = document.getElementById("left-links");
+const centerLinks = document.getElementById("center-links");
+const rightLinks = document.getElementById("right-links");
+
+const PLACEHOLDER =
+  '<p class="italic text-slate-500 dark:text-slate-400">Pick a headline in <strong>Headlines</strong> to fill this column.</p>';
+
+/** @type {"headlines" | "perspectives" | "crawl"} */
+let activeTab = "headlines";
+
+function setActiveTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll("#main-tabs .tab-btn").forEach((btn) => {
+    const t = btn.getAttribute("data-tab");
+    const isOn = t === tab;
+    btn.classList.toggle("tab-active", isOn);
+    btn.setAttribute("aria-selected", isOn ? "true" : "false");
+  });
+  if (panelHeadlines) panelHeadlines.classList.toggle("hidden", tab !== "headlines");
+  if (panelPerspectives) panelPerspectives.classList.toggle("hidden", tab !== "perspectives");
+  if (panelCrawl) panelCrawl.classList.toggle("hidden", tab !== "crawl");
+  mainTabs?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+document.querySelectorAll("#main-tabs .tab-btn").forEach((btn) => {
+  btn.setAttribute("role", "tab");
+  btn.setAttribute("aria-selected", "false");
+  btn.addEventListener("click", () => {
+    const t = btn.getAttribute("data-tab");
+    if (t === "headlines" || t === "perspectives" || t === "crawl") setActiveTab(t);
+  });
+});
+
+function normalizeStanceLabel(stance) {
+  const s = String(stance || "").toLowerCase();
+  if (s.includes("left")) return "LEFT";
+  if (s.includes("right")) return "RIGHT";
+  if (s.includes("center") || s.includes("centre")) return "CENTER";
+  if (s.includes("mixed")) return "MIXED";
+  return "UNKNOWN";
+}
+
+function setTheme(mode) {
+  const isDark = mode === "dark";
+  document.documentElement.classList.toggle("dark", isDark);
+  try {
+    localStorage.setItem("madnews-theme", isDark ? "dark" : "light");
+  } catch {}
+  if (themeToggle) themeToggle.textContent = isDark ? "Toggle Light" : "Toggle Dark";
+}
+
+themeToggle?.addEventListener("click", () => {
+  const isDark = document.documentElement.classList.contains("dark");
+  setTheme(isDark ? "light" : "dark");
+});
+setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+
+function setStatus(text) {
+  statusEl.textContent = text || "";
+}
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  );
+}
+
+function resetThreeColumnPlaceholders() {
+  if (triContext) triContext.textContent = "No headline selected yet.";
+  triStatus.textContent =
+    "Open the Headlines tab, tap a story — we’ll switch here and load LEFT / CENTER / RIGHT for that headline only.";
+  leftSummary.innerHTML = PLACEHOLDER;
+  centerSummary.innerHTML = PLACEHOLDER;
+  rightSummary.innerHTML = PLACEHOLDER;
+  leftLinks.innerHTML = "";
+  centerLinks.innerHTML = "";
+  rightLinks.innerHTML = "";
+}
+
+function renderSideSummary(container, sideData) {
+  const summary = sideData?.summary || {};
+  const points = Array.isArray(summary?.key_points) ? summary.key_points : [];
+  container.innerHTML = `
+    <div class="mb-2">${summary?.summary || "No summary available."}</div>
+    <ul class="list-disc space-y-1 pl-5">${points.map((x) => `<li>${x}</li>`).join("") || "<li>No key points</li>"}</ul>
+  `;
+}
+
+function renderSideLinks(container, links = []) {
+  container.innerHTML = "";
+  if (!Array.isArray(links) || !links.length) {
+    container.innerHTML = `<li class="text-slate-500 dark:text-slate-400">No source links.</li>`;
+    return;
+  }
+  for (const link of links) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = link?.url || "#";
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.className = "text-blue-700 hover:underline dark:text-blue-400";
+    a.textContent = `${link?.outlet || "Unknown"}: ${link?.title || "Untitled"}`;
+    li.appendChild(a);
+    container.appendChild(li);
+  }
+}
+
+let triHintTimer = null;
+
+function startTriProgressHints() {
+  if (triHintTimer) clearInterval(triHintTimer);
+  const hints = [
+    "Building LEFT / CENTER / RIGHT for this headline…",
+    "Gathering domain-filtered links (can take a while)…",
+    "Summarizing each side — almost there…",
+  ];
+  let i = 0;
+  triStatus.textContent = hints[0];
+  triHintTimer = setInterval(() => {
+    i = Math.min(i + 1, hints.length - 1);
+    triStatus.textContent = hints[i];
+  }, 22000);
+}
+
+function stopTriProgressHints() {
+  if (triHintTimer) {
+    clearInterval(triHintTimer);
+    triHintTimer = null;
+  }
+}
+
+/** Query sent to /api/madnews-three-sides: search topic + headline so DDG stays on-story. */
+function buildHeadlineTopic(searchTopic, row) {
+  const title = String(row?.title || "").trim();
+  const t = String(searchTopic || "").trim();
+  if (!title) return t || "news";
+  const combined = `${t} ${title}`.trim();
+  return combined.slice(0, 220);
+}
+
+async function loadThreeSides(apiTopic, displayHeadline) {
+  if (triContext && displayHeadline) {
+    triContext.textContent = `Showing perspectives for: ${displayHeadline}`;
+  }
+  startTriProgressHints();
+  try {
+    const response = await fetchWithTimeout(
+      `/api/madnews-three-sides?topic=${encodeURIComponent(apiTopic)}`,
+      {},
+      130000
+    );
+    if (!response.ok) throw new Error(`3-side failed (${response.status})`);
+    const data = await response.json();
+    const totalTimeout = data?.meta?.error === "madnews_total_timeout";
+    if (totalTimeout) {
+      stopTriProgressHints();
+      triStatus.textContent =
+        "Whole 3-side pipeline timed out on the server. Try again or use a shorter headline.";
+    }
+    renderSideSummary(leftSummary, data?.LEFT);
+    renderSideSummary(centerSummary, data?.CENTER);
+    renderSideSummary(rightSummary, data?.RIGHT);
+    renderSideLinks(leftLinks, data?.LEFT?.links || []);
+    renderSideLinks(centerLinks, data?.CENTER?.links || []);
+    renderSideLinks(rightLinks, data?.RIGHT?.links || []);
+    stopTriProgressHints();
+    if (!totalTimeout) {
+      triStatus.textContent = displayHeadline
+        ? `Loaded for: “${displayHeadline.slice(0, 90)}${displayHeadline.length > 90 ? "…" : ""}”`
+        : `3-side view loaded from ${data?.meta?.source || "sources"}.`;
+    }
+  } catch (error) {
+    stopTriProgressHints();
+    const msg =
+      error?.name === "AbortError"
+        ? "3-side request timed out. Try again or pick another headline."
+        : error?.message || "Failed to build 3-side view.";
+    triStatus.textContent = msg;
+  }
+}
+
+function clearHeadlineSelection() {
+  newsList.querySelectorAll("[data-headline-item]").forEach((el) => {
+    el.classList.remove("ring-2", "ring-blue-500", "ring-offset-2", "dark:ring-offset-slate-900");
+  });
+}
+
+async function onHeadlineClick(searchTopic, row, liEl) {
+  clearHeadlineSelection();
+  liEl.classList.add("ring-2", "ring-blue-500", "ring-offset-2", "dark:ring-offset-slate-900");
+  const headline = String(row?.title || "Story").trim();
+  const apiTopic = buildHeadlineTopic(searchTopic, row);
+  setActiveTab("perspectives");
+  await loadThreeSides(apiTopic, headline);
+}
+
+function renderNews(items = [], searchTopic = "") {
+  newsList.innerHTML = "";
+  if (!Array.isArray(items) || items.length === 0) {
+    newsList.innerHTML = `<li class="text-slate-500 dark:text-slate-400">No links found for "${searchTopic}".</li>`;
+    return;
+  }
+
+  for (const row of items) {
+    const li = document.createElement("li");
+    li.setAttribute("data-headline-item", "1");
+    li.className =
+      "rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950";
+
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className =
+      "block w-full text-left font-medium text-blue-700 hover:underline dark:text-blue-400";
+    title.textContent = row?.title || "Untitled";
+    title.addEventListener("click", () => onHeadlineClick(searchTopic, row, li));
+
+    const meta = document.createElement("div");
+    meta.className = "mt-1 text-xs text-slate-600 dark:text-slate-400";
+    meta.textContent = `${row?.outlet || "Unknown"}${row?.why ? ` - ${row.why}` : ""}`;
+
+    const crawlBtn = document.createElement("button");
+    crawlBtn.type = "button";
+    crawlBtn.className =
+      "mt-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
+    crawlBtn.textContent = "Crawl page (optional)";
+    crawlBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      crawlAnalyze(searchTopic, row);
+    });
+
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(crawlBtn);
+    newsList.appendChild(li);
+  }
+}
+
+function renderAnalysis(payload) {
+  const analysis = payload?.analysis || {};
+  const keyPoints = Array.isArray(analysis.key_points) ? analysis.key_points : [];
+  const biasSignals = Array.isArray(analysis.bias_signals) ? analysis.bias_signals : [];
+  const stance = normalizeStanceLabel(analysis.stance);
+  const stanceColor =
+    stance === "LEFT"
+      ? "text-blue-700 dark:text-blue-300"
+      : stance === "RIGHT"
+      ? "text-rose-700 dark:text-rose-300"
+      : stance === "CENTER"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : "text-slate-700 dark:text-slate-300";
+
+  analysisWrap.innerHTML = `
+    <div class="mb-2 text-xs text-slate-600 dark:text-slate-400">${payload?.outlet || "Unknown"} - ${payload?.url || ""}</div>
+    <div class="mb-2 rounded bg-slate-100 p-3 dark:bg-slate-950"><strong>Summary:</strong> ${analysis.summary || "No summary."}</div>
+    <div class="mb-2"><strong>madnews stance:</strong> <span class="${stanceColor} font-semibold">${stance}</span></div>
+    <div class="mb-2"><strong>Key points:</strong></div>
+    <ul class="mb-3 list-disc space-y-1 pl-5">${keyPoints.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
+    <div class="mb-2"><strong>Narrative signals:</strong></div>
+    <ul class="list-disc space-y-1 pl-5">${biasSignals.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
+  `;
+}
+
+async function crawlAnalyze(topic, row) {
+  setActiveTab("crawl");
+  analysisWrap.textContent = "Crawling and analyzing…";
+  try {
+    const response = await fetchWithTimeout(
+      "/api/crawl-and-analyze",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, url: row?.url || "" }),
+      },
+      90000
+    );
+    if (!response.ok) throw new Error(`Analyze failed (${response.status})`);
+    const data = await response.json();
+    renderAnalysis(data);
+  } catch (error) {
+    analysisWrap.textContent = error?.message || "Failed to analyze this link.";
+  }
+}
+
+async function loadNews(topic) {
+  loadBtn.disabled = true;
+  loadBtn.textContent = "Loading…";
+  setActiveTab("headlines");
+  setStatus("Loading headlines…");
+  newsList.innerHTML = "";
+  clearHeadlineSelection();
+  resetThreeColumnPlaceholders();
+  analysisWrap.textContent =
+    "Use “Crawl page (optional)” on a headline (tab 1), or open tab 3 after starting a crawl.";
+  try {
+    const response = await fetchWithTimeout(
+      `/api/latest-news?topic=${encodeURIComponent(topic)}&limit=10`,
+      {},
+      50000
+    );
+    if (!response.ok) throw new Error(`Load failed (${response.status})`);
+    const data = await response.json();
+    renderNews(data?.articles || [], topic);
+    const timed = data?.meta?.ddg_timeout === true;
+    setStatus(
+      timed
+        ? "Search timed out (DuckDuckGo slow). Try “Load headlines” again."
+        : `Loaded ${data?.articles?.length || 0} headlines. Tap one — we’ll open Perspectives for you.`
+    );
+  } catch (error) {
+    const msg =
+      error?.name === "AbortError"
+        ? "Request timed out — is the server running at http://127.0.0.1:8780 ? Try again."
+        : error?.message || "Failed to load latest links.";
+    setStatus(msg);
+    renderNews([], topic);
+    triStatus.textContent = "";
+    if (triContext) triContext.textContent = "";
+    loadBtn.disabled = false;
+    loadBtn.textContent = "Load headlines";
+    return;
+  }
+  loadBtn.disabled = false;
+  loadBtn.textContent = "Load headlines";
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const topic = topicInput.value.trim();
+  if (!topic) return;
+  loadNews(topic);
+});
+
+resetThreeColumnPlaceholders();
+setActiveTab("headlines");
+setStatus(
+  "Use the tabs: Headlines → tap a story (Perspectives opens) → optional Article for crawl."
+);
