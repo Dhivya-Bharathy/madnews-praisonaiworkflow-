@@ -32,7 +32,7 @@ DDGS_COLLECT_TIMEOUT = float(os.getenv("PRAISON_DDGS_COLLECT_TIMEOUT", "45"))
 DDGS_MADNEWS_TOTAL_TIMEOUT = float(os.getenv("PRAISON_DDGS_MADNEWS_TOTAL_TIMEOUT", "120"))
 # politics-first product default; set NEWS_FOCUS=general for open-ended topics (same on Render via env).
 NEWS_FOCUS_MODE = (os.getenv("NEWS_FOCUS") or "politics").strip().lower()
-DEFAULT_NEWS_TOPIC = (os.getenv("DEFAULT_NEWS_TOPIC") or "Indian politics").strip() or "Indian politics"
+DEFAULT_NEWS_TOPIC = (os.getenv("DEFAULT_NEWS_TOPIC") or "India politics").strip() or "India politics"
 
 LEFT_DOMAINS = [
     "theprint.in",
@@ -110,18 +110,95 @@ def _is_politics_focus() -> bool:
     return NEWS_FOCUS_MODE not in ("general", "off", "any", "all")
 
 
+# Domains / patterns that rank for the word "Indian" but are not India political news.
+_POLITICS_NOISE_DOMAIN = (
+    "indianmotorcycle",
+    "indianmotorcycles",
+    "indianmotor",
+    "hdforums",
+    "harley-davidson",
+    "ducati.com",
+    "yamaha-motor",
+)
+
+
+def _topic_for_political_search(raw: str) -> str:
+    """Avoid DDG matching 'Indian' to Indian Motorcycle — prefer India-as-country wording."""
+    t = str(raw or "").strip()
+    if not t:
+        return t
+    # Common default / user phrasing that collides with the motorcycle brand name.
+    t = re.sub(r"(?is)\bindian\s+politics\b", "India politics parliament election", t)
+    t = re.sub(r"(?is)\bindian\s+government\b", "India government parliament", t)
+    return t
+
+
+def _politics_ddg_exclusions() -> str:
+    """Negative terms for DuckDuckGo text search (politics mode)."""
+    return " -motorcycle -motorcycles -motorbike -indianmotorcycle -roadmaster -harley"
+
+
+def _is_politics_noise_result(url: str, title: str, snippet: str = "") -> bool:
+    """Drop obvious non-politics hits when we are in politics mode."""
+    u = url.lower()
+    blob = f"{title} {snippet}".lower()
+    if any(s in u for s in _POLITICS_NOISE_DOMAIN):
+        return True
+    motor = any(
+        m in blob
+        for m in (
+            "motorcycle forum",
+            "motorcycle -",
+            "diagnostic code",
+            "roadmaster",
+            "powerplus",
+            "indian pursuit",
+            "sportster",
+            "softail",
+        )
+    )
+    pol_hint = any(
+        p in blob
+        for p in (
+            "parliament",
+            "lok sabha",
+            "rajya sabha",
+            "election",
+            "minister",
+            "bjp",
+            "congress",
+            "modi",
+            "cabinet",
+            "policy",
+            "bill",
+            "government",
+            "supreme court",
+            "assembly",
+            "chief minister",
+            "mp ",
+            "mla ",
+        )
+    )
+    if motor and not pol_hint:
+        return True
+    return False
+
+
 def _headlines_ddg_query(topic: str) -> str:
-    t = str(topic or "").strip()
+    t = _topic_for_political_search(str(topic or "").strip())
     if not t:
         return ""
     if _is_politics_focus():
-        return f"{t} India politics government election policy parliament latest news"
+        return (
+            f"{t} India politics government election policy parliament latest news"
+            f"{_politics_ddg_exclusions()}"
+        )
     return f"{t} latest news"
 
 
 def _side_ddg_tail() -> str:
     if _is_politics_focus():
-        return "India politics government news"
+        return f"India politics government news{_politics_ddg_exclusions()}"
     return "latest news"
 
 
@@ -138,6 +215,9 @@ def discover_news_candidates(topic: str, max_results: int = 30) -> list[dict[str
                 continue
             if any(bad in url for bad in ("wikipedia.org", "youtube.com", "facebook.com", "twitter.com")):
                 continue
+            snippet = str(row.get("body") or "")[:350]
+            if _is_politics_focus() and _is_politics_noise_result(url, title, snippet):
+                continue
             key = url.lower()
             if key in seen:
                 continue
@@ -147,7 +227,7 @@ def discover_news_candidates(topic: str, max_results: int = 30) -> list[dict[str
                     "title": title[:300],
                     "url": url,
                     "outlet": _host(url),
-                    "snippet": str(row.get("body") or "")[:350],
+                    "snippet": snippet,
                 }
             )
     except Exception:
@@ -157,7 +237,7 @@ def discover_news_candidates(topic: str, max_results: int = 30) -> list[dict[str
 
 def ddg_collect(topic: str, domains: list[str], per_query: int = 5) -> list[dict[str, Any]]:
     """Collect topic links with optional site filters for side buckets."""
-    topic = str(topic or "").strip()
+    topic = _topic_for_political_search(str(topic or "").strip())
     if not topic:
         return []
     queries: list[str] = []
@@ -182,6 +262,9 @@ def ddg_collect(topic: str, domains: list[str], per_query: int = 5) -> list[dict
                     continue
                 if any(bad in url for bad in ("wikipedia.org", "youtube.com", "facebook.com", "twitter.com")):
                     continue
+                snippet = str(row.get("body") or "")[:350]
+                if _is_politics_focus() and _is_politics_noise_result(url, title, snippet):
+                    continue
                 key = url.lower()
                 if key in seen:
                     continue
@@ -191,7 +274,7 @@ def ddg_collect(topic: str, domains: list[str], per_query: int = 5) -> list[dict
                         "title": title[:300],
                         "url": url,
                         "outlet": _host(url),
-                        "snippet": str(row.get("body") or "")[:350],
+                        "snippet": snippet,
                     }
                 )
         except Exception:
