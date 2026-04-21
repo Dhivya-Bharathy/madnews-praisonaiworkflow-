@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>madnews Labs - Praison Workflow</title>
-    <link rel="stylesheet" href="/static/layout.css?v=20260423" />
+    <link rel="stylesheet" href="/static/layout.css?v=20260424" />
     <script>
       (function () {
         try {
@@ -20,7 +20,8 @@
         <div>
           <h1>madnews Labs</h1>
           <p>
-            Load headlines → tap one for LEFT / CENTER / RIGHT → optional article crawl.
+            Politics-first headlines (India) → tap a story for LEFT / CENTER / RIGHT perspectives and source links →
+            optional full-article crawl.
           </p>
         </div>
         <button id="theme-toggle" type="button" class="btn-theme">Toggle Dark</button>
@@ -31,8 +32,8 @@
           <input
             id="topic-input"
             class="input-field"
-            value="AI news"
-            placeholder="Topic (e.g. Waqf Bill, LPG)"
+            value=""
+            placeholder="e.g. Waqf Bill, Delhi elections, Union Budget"
           />
           <button id="load-btn" type="submit" class="btn-primary">Load headlines</button>
         </form>
@@ -54,22 +55,29 @@
 
       <div id="panel-perspectives" class="card card-panel hidden" role="tabpanel">
         <p id="tri-context" class="tri-context"></p>
+        <p id="tri-intro" class="help"></p>
         <div id="tri-status" class="tri-status"></div>
         <div class="tri-scroll">
           <div class="tri-grid">
             <div class="tri-col tri-col-left">
               <h3>LEFT</h3>
+              <p class="tri-kicker">Narrative</p>
               <div id="left-summary" class="body"></div>
+              <p class="tri-kicker">Article links</p>
               <ul id="left-links"></ul>
             </div>
             <div class="tri-col tri-col-center">
               <h3>CENTER</h3>
+              <p class="tri-kicker">Narrative</p>
               <div id="center-summary" class="body"></div>
+              <p class="tri-kicker">Article links</p>
               <ul id="center-links"></ul>
             </div>
             <div class="tri-col tri-col-right">
               <h3>RIGHT</h3>
+              <p class="tri-kicker">Narrative</p>
               <div id="right-summary" class="body"></div>
+              <p class="tri-kicker">Article links</p>
               <ul id="right-links"></ul>
             </div>
           </div>
@@ -86,6 +94,6 @@
         </div>
       </div>
     </main>
-    <script src="/static/app.js?v=20260423"></script>
+    <script src="/static/app.js?v=20260424"></script>
   </body>
 </html>

@@ -304,6 +304,23 @@ html.dark .tri-col {
   font-size: 1rem;
   font-weight: 600;
 }
+.tri-kicker {
+  margin: 0 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+html.dark .tri-kicker {
+  color: #94a3b8;
+}
+.tri-col .tri-kicker {
+  margin-top: 0.5rem;
+}
+.tri-col .tri-kicker:first-of-type {
+  margin-top: 0;
+}
 .tri-col-left h3 {
   color: #1d4ed8;
 }

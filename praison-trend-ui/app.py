@@ -13,7 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -30,6 +30,9 @@ FAST_MODE = os.getenv("PRAISON_FAST_MODE", "1").strip().lower() not in ("0", "fa
 DDGS_LATEST_TIMEOUT = float(os.getenv("PRAISON_DDGS_LATEST_TIMEOUT", "35"))
 DDGS_COLLECT_TIMEOUT = float(os.getenv("PRAISON_DDGS_COLLECT_TIMEOUT", "45"))
 DDGS_MADNEWS_TOTAL_TIMEOUT = float(os.getenv("PRAISON_DDGS_MADNEWS_TOTAL_TIMEOUT", "120"))
+# politics-first product default; set NEWS_FOCUS=general for open-ended topics (same on Render via env).
+NEWS_FOCUS_MODE = (os.getenv("NEWS_FOCUS") or "politics").strip().lower()
+DEFAULT_NEWS_TOPIC = (os.getenv("DEFAULT_NEWS_TOPIC") or "Indian politics").strip() or "Indian politics"
 
 LEFT_DOMAINS = [
     "theprint.in",
@@ -103,8 +106,27 @@ def _strip_json_object(text: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _is_politics_focus() -> bool:
+    return NEWS_FOCUS_MODE not in ("general", "off", "any", "all")
+
+
+def _headlines_ddg_query(topic: str) -> str:
+    t = str(topic or "").strip()
+    if not t:
+        return ""
+    if _is_politics_focus():
+        return f"{t} India politics government election policy parliament latest news"
+    return f"{t} latest news"
+
+
+def _side_ddg_tail() -> str:
+    if _is_politics_focus():
+        return "India politics government news"
+    return "latest news"
+
+
 def discover_news_candidates(topic: str, max_results: int = 30) -> list[dict[str, Any]]:
-    q = f"{topic} latest news"
+    q = _headlines_ddg_query(topic)
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     try:
@@ -139,13 +161,14 @@ def ddg_collect(topic: str, domains: list[str], per_query: int = 5) -> list[dict
     if not topic:
         return []
     queries: list[str] = []
+    tail = _side_ddg_tail()
     # Cap domain fan-out; querying too many sites serially is the biggest latency source.
-    max_domains = 4 if FAST_MODE else 8
+    max_domains = 6 if FAST_MODE else 8
     for d in (domains or [])[:max_domains]:
         d = str(d or "").strip().lower()
         if d:
-            queries.append(f"site:{d} {topic} latest news")
-    queries.append(f"{topic} latest news")
+            queries.append(f"site:{d} {topic} {tail}")
+    queries.append(f"{topic} {tail}")
 
     ddgs = DDGS()
     seen: set[str] = set()
@@ -184,12 +207,19 @@ def curate_with_praison(topic: str, candidates: list[dict[str, Any]], max_items:
     if not (os.getenv("OPENAI_API_KEY") or "").strip():
         return candidates[:max_items]
 
+    politics_line = (
+        " Prioritize political news: government, parties, elections, parliament, policy, legislation. "
+        "Exclude pure sports, entertainment gossip, and consumer tech unless clearly policy-related."
+        if _is_politics_focus()
+        else ""
+    )
     agent = Agent(
         name="LatestNewsCurator",
         instructions=(
             "You are a strict news curator. Keep only relevant, likely recent, meaningful news links "
-            "for the given topic. Use only provided candidate URLs. No URL invention. "
-            "Output strict JSON array only: "
+            "for the given topic. Use only provided candidate URLs. No URL invention."
+            + politics_line
+            + " Output strict JSON array only: "
             '[{"title":"...","url":"https://...","outlet":"...","why":"short reason"}].'
         ),
         model=MODEL,
@@ -306,9 +336,18 @@ def summarize_side_with_praison(topic: str, side: str, articles: list[dict[str, 
             "stance": side.lower(),
         }
     if FAST_MODE or not (os.getenv("OPENAI_API_KEY") or "").strip():
+        # Use titles + snippets so Perspectives is substantive without LLM (e.g. Render FAST_MODE).
+        parts: list[str] = []
+        for a in articles[:6]:
+            ti = str(a.get("title") or "").strip()
+            sn = str(a.get("snippet") or "").strip()
+            if not ti:
+                continue
+            parts.append(f"{ti}" + (f" — {sn[:220]}" if sn else ""))
+        blob = " ".join(parts)[:950].strip()
         return {
-            "summary": f"{side} side based on current links.",
-            "key_points": [a.get("title", "") for a in articles[:4] if a.get("title")],
+            "summary": blob or f"{side} side based on current links.",
+            "key_points": [str(a.get("title") or "") for a in articles[:5] if a.get("title")],
             "stance": side.lower(),
         }
     agent = Agent(
@@ -352,6 +391,18 @@ def root() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers=dict(_NO_STORE))
 
 
+@app.get("/api/config")
+def ui_config() -> dict[str, Any]:
+    """Single source of truth for UI defaults (localhost + Render with env overrides)."""
+    return {
+        "defaultTopic": DEFAULT_NEWS_TOPIC,
+        "newsFocus": "politics" if _is_politics_focus() else "general",
+        "perspectivesNote": (
+            "Each column lists article links from that spectrum plus a short narrative built from those results."
+        ),
+    }
+
+
 @app.get("/static/{path:path}")
 def static_files(path: str) -> FileResponse:
     file_path = STATIC_DIR / path
@@ -362,10 +413,11 @@ def static_files(path: str) -> FileResponse:
 
 
 @app.get("/api/latest-news")
-def latest_news(topic: str = "AI news", limit: int = 10) -> dict[str, Any]:
-    topic = topic.strip()
-    if not topic:
-        raise HTTPException(status_code=400, detail="topic is required")
+def latest_news(
+    topic: str | None = Query(default=None, max_length=400),
+    limit: int = 10,
+) -> dict[str, Any]:
+    topic = (topic or "").strip() or DEFAULT_NEWS_TOPIC
     limit = max(3, min(limit, 12))
     max_results = 20 if FAST_MODE else 36
     ddg_timed_out = False
@@ -464,8 +516,8 @@ def madnews_three_sides(topic: str) -> dict[str, Any]:
     if not topic:
         raise HTTPException(status_code=400, detail="topic is required")
 
-    per_q = 3 if FAST_MODE else 5
-    max_items = 6 if FAST_MODE else 8
+    per_q = 4 if FAST_MODE else 5
+    max_items = 7 if FAST_MODE else 8
 
     empty_summary = {
         "summary": "Timed out or no data for this side.",

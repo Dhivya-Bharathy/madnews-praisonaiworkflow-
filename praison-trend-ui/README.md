@@ -25,6 +25,16 @@ Or: `python app.py` (reads `PORT` / `UVICORN_HOST` from env).
 
 Optional timeouts (seconds) if DuckDuckGo is slow: `PRAISON_DDGS_LATEST_TIMEOUT` (default 35), `PRAISON_DDGS_COLLECT_TIMEOUT` (45), `PRAISON_DDGS_MADNEWS_TOTAL_TIMEOUT` (120).
 
+**Politics-first scope (localhost + Render):** copy `.env.example` to `.env` and adjust as needed.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `NEWS_FOCUS` | `politics` | Search/curation bias toward Indian political news. Set to `general` for open-ended topics. |
+| `DEFAULT_NEWS_TOPIC` | `Indian politics` | Default headline topic in the UI (also used if `topic` is omitted on `GET /api/latest-news`). |
+| `PRAISON_FAST_MODE` | `1` | Faster DDG limits; Perspectives still fills narrative text from article titles/snippets when the API key is absent. |
+
+The browser loads defaults from **`GET /api/config`** so production env vars control the topic field without rebuilding static files.
+
 ## One-click run (Windows)
 
 PowerShell:

@@ -10,7 +10,10 @@ const panelHeadlines = document.getElementById("panel-headlines");
 const panelPerspectives = document.getElementById("panel-perspectives");
 const panelCrawl = document.getElementById("panel-crawl");
 const triContext = document.getElementById("tri-context");
+const triIntro = document.getElementById("tri-intro");
 const triStatus = document.getElementById("tri-status");
+/** Mirrors server DEFAULT_NEWS_TOPIC until /api/config loads (Render + localhost). */
+let resolvedDefaultTopic = "Indian politics";
 const leftSummary = document.getElementById("left-summary");
 const centerSummary = document.getElementById("center-summary");
 const rightSummary = document.getElementById("right-summary");
@@ -341,13 +344,35 @@ async function loadNews(topic) {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  const topic = topicInput.value.trim();
-  if (!topic) return;
+  const topic = topicInput.value.trim() || resolvedDefaultTopic;
   loadNews(topic);
 });
+
+async function loadUiConfig() {
+  try {
+    const r = await fetch("/api/config");
+    if (!r.ok) return;
+    const c = await r.json();
+    if (topicInput && typeof c.defaultTopic === "string" && c.defaultTopic.trim()) {
+      const dt = c.defaultTopic.trim();
+      resolvedDefaultTopic = dt;
+      topicInput.value = dt;
+    }
+    if (triIntro && typeof c.perspectivesNote === "string" && c.perspectivesNote.trim()) {
+      triIntro.textContent = c.perspectivesNote.trim();
+    }
+  } catch {
+    resolvedDefaultTopic = "Indian politics";
+    if (topicInput && !topicInput.value.trim()) topicInput.value = resolvedDefaultTopic;
+    if (triIntro && !triIntro.textContent)
+      triIntro.textContent =
+        "Each column lists article links from that spectrum plus a short narrative built from those results.";
+  }
+}
 
 resetThreeColumnPlaceholders();
 setActiveTab("headlines");
 setStatus(
   "Use the tabs: Headlines → tap a story (Perspectives opens) → optional Article for crawl."
 );
+loadUiConfig();
