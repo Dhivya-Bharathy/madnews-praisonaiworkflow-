@@ -21,5 +21,5 @@ if "%OPENAI_API_KEY%"=="" (
 )
 
 if "%OPENAI_MODEL%"=="" set OPENAI_MODEL=gpt-4o-mini
-echo Starting server on http://127.0.0.1:8780 ...
-uvicorn app:app --host 127.0.0.1 --port 8780 --reload
+echo Starting server — open http://127.0.0.1:8780/ or http://localhost:8780/
+uvicorn app:app --host 0.0.0.0 --port 8780 --reload

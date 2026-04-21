@@ -343,9 +343,13 @@ def summarize_side_with_praison(topic: str, side: str, articles: list[dict[str, 
         }
 
 
+# Avoid stale UI on hosts (e.g. Render) that cache HTML/JS aggressively.
+_NO_STORE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+
+
 @app.get("/")
 def root() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=dict(_NO_STORE))
 
 
 @app.get("/static/{path:path}")
@@ -353,7 +357,8 @@ def static_files(path: str) -> FileResponse:
     file_path = STATIC_DIR / path
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Static file not found")
-    return FileResponse(file_path)
+    headers = dict(_NO_STORE) if path.endswith((".html", ".js", ".css")) else {}
+    return FileResponse(file_path, headers=headers)
 
 
 @app.get("/api/latest-news")
@@ -481,4 +486,12 @@ def madnews_three_sides(topic: str) -> dict[str, Any]:
             return fut.result(timeout=DDGS_MADNEWS_TOTAL_TIMEOUT)
         except concurrent.futures.TimeoutError:
             return empty_payload
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    _port = int(os.getenv("PORT", "8780"))
+    _host = os.getenv("UVICORN_HOST", "0.0.0.0")
+    uvicorn.run(app, host=_host, port=_port)
 

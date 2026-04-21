@@ -19,7 +19,7 @@ const centerLinks = document.getElementById("center-links");
 const rightLinks = document.getElementById("right-links");
 
 const PLACEHOLDER =
-  '<p class="italic text-slate-500 dark:text-slate-400">Pick a headline in <strong>Headlines</strong> to fill this column.</p>';
+  '<p class="placeholder muted">Pick a headline in <strong>Headlines</strong> to fill this column.</p>';
 
 /** @type {"headlines" | "perspectives" | "crawl"} */
 let activeTab = "headlines";
@@ -99,15 +99,15 @@ function renderSideSummary(container, sideData) {
   const summary = sideData?.summary || {};
   const points = Array.isArray(summary?.key_points) ? summary.key_points : [];
   container.innerHTML = `
-    <div class="mb-2">${summary?.summary || "No summary available."}</div>
-    <ul class="list-disc space-y-1 pl-5">${points.map((x) => `<li>${x}</li>`).join("") || "<li>No key points</li>"}</ul>
+    <div class="rich-summary">${summary?.summary || "No summary available."}</div>
+    <ul class="rich-ul">${points.map((x) => `<li>${x}</li>`).join("") || "<li>No key points</li>"}</ul>
   `;
 }
 
 function renderSideLinks(container, links = []) {
   container.innerHTML = "";
   if (!Array.isArray(links) || !links.length) {
-    container.innerHTML = `<li class="text-slate-500 dark:text-slate-400">No source links.</li>`;
+    container.innerHTML = `<li class="muted">No source links.</li>`;
     return;
   }
   for (const link of links) {
@@ -116,7 +116,7 @@ function renderSideLinks(container, links = []) {
     a.href = link?.url || "#";
     a.target = "_blank";
     a.rel = "noreferrer";
-    a.className = "text-blue-700 hover:underline dark:text-blue-400";
+    a.className = "link-a";
     a.textContent = `${link?.outlet || "Unknown"}: ${link?.title || "Untitled"}`;
     li.appendChild(a);
     container.appendChild(li);
@@ -199,13 +199,13 @@ async function loadThreeSides(apiTopic, displayHeadline) {
 
 function clearHeadlineSelection() {
   newsList.querySelectorAll("[data-headline-item]").forEach((el) => {
-    el.classList.remove("ring-2", "ring-blue-500", "ring-offset-2", "dark:ring-offset-slate-900");
+    el.classList.remove("selected");
   });
 }
 
 async function onHeadlineClick(searchTopic, row, liEl) {
   clearHeadlineSelection();
-  liEl.classList.add("ring-2", "ring-blue-500", "ring-offset-2", "dark:ring-offset-slate-900");
+  liEl.classList.add("selected");
   const headline = String(row?.title || "Story").trim();
   const apiTopic = buildHeadlineTopic(searchTopic, row);
   setActiveTab("perspectives");
@@ -215,31 +215,28 @@ async function onHeadlineClick(searchTopic, row, liEl) {
 function renderNews(items = [], searchTopic = "") {
   newsList.innerHTML = "";
   if (!Array.isArray(items) || items.length === 0) {
-    newsList.innerHTML = `<li class="text-slate-500 dark:text-slate-400">No links found for "${searchTopic}".</li>`;
+    newsList.innerHTML = `<li class="muted">No links found for "${searchTopic}".</li>`;
     return;
   }
 
   for (const row of items) {
     const li = document.createElement("li");
     li.setAttribute("data-headline-item", "1");
-    li.className =
-      "rounded-lg border border-slate-300 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950";
+    li.className = "headline-card";
 
     const title = document.createElement("button");
     title.type = "button";
-    title.className =
-      "block w-full text-left font-medium text-blue-700 hover:underline dark:text-blue-400";
+    title.className = "headline-title";
     title.textContent = row?.title || "Untitled";
     title.addEventListener("click", () => onHeadlineClick(searchTopic, row, li));
 
     const meta = document.createElement("div");
-    meta.className = "mt-1 text-xs text-slate-600 dark:text-slate-400";
+    meta.className = "headline-meta";
     meta.textContent = `${row?.outlet || "Unknown"}${row?.why ? ` - ${row.why}` : ""}`;
 
     const crawlBtn = document.createElement("button");
     crawlBtn.type = "button";
-    crawlBtn.className =
-      "mt-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
+    crawlBtn.className = "btn-crawl";
     crawlBtn.textContent = "Crawl page (optional)";
     crawlBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -253,28 +250,29 @@ function renderNews(items = [], searchTopic = "") {
   }
 }
 
+function stanceCssClass(stance) {
+  const s = normalizeStanceLabel(stance);
+  if (s === "LEFT") return "stance-left";
+  if (s === "RIGHT") return "stance-right";
+  if (s === "CENTER") return "stance-center";
+  return "stance-unknown";
+}
+
 function renderAnalysis(payload) {
   const analysis = payload?.analysis || {};
   const keyPoints = Array.isArray(analysis.key_points) ? analysis.key_points : [];
   const biasSignals = Array.isArray(analysis.bias_signals) ? analysis.bias_signals : [];
   const stance = normalizeStanceLabel(analysis.stance);
-  const stanceColor =
-    stance === "LEFT"
-      ? "text-blue-700 dark:text-blue-300"
-      : stance === "RIGHT"
-      ? "text-rose-700 dark:text-rose-300"
-      : stance === "CENTER"
-      ? "text-emerald-700 dark:text-emerald-300"
-      : "text-slate-700 dark:text-slate-300";
+  const stanceCls = stanceCssClass(analysis.stance);
 
   analysisWrap.innerHTML = `
-    <div class="mb-2 text-xs text-slate-600 dark:text-slate-400">${payload?.outlet || "Unknown"} - ${payload?.url || ""}</div>
-    <div class="mb-2 rounded bg-slate-100 p-3 dark:bg-slate-950"><strong>Summary:</strong> ${analysis.summary || "No summary."}</div>
-    <div class="mb-2"><strong>madnews stance:</strong> <span class="${stanceColor} font-semibold">${stance}</span></div>
-    <div class="mb-2"><strong>Key points:</strong></div>
-    <ul class="mb-3 list-disc space-y-1 pl-5">${keyPoints.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
-    <div class="mb-2"><strong>Narrative signals:</strong></div>
-    <ul class="list-disc space-y-1 pl-5">${biasSignals.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
+    <div class="analysis-url">${payload?.outlet || "Unknown"} - ${payload?.url || ""}</div>
+    <div class="analysis-box"><strong>Summary:</strong> ${analysis.summary || "No summary."}</div>
+    <div class="rich-summary"><strong>madnews stance:</strong> <span class="${stanceCls}">${stance}</span></div>
+    <div class="rich-summary"><strong>Key points:</strong></div>
+    <ul class="rich-ul">${keyPoints.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
+    <div class="rich-summary"><strong>Narrative signals:</strong></div>
+    <ul class="rich-ul">${biasSignals.map((x) => `<li>${x}</li>`).join("") || "<li>None</li>"}</ul>
   `;
 }
 
@@ -327,7 +325,7 @@ async function loadNews(topic) {
   } catch (error) {
     const msg =
       error?.name === "AbortError"
-        ? "Request timed out — is the server running at http://127.0.0.1:8780 ? Try again."
+        ? "Request timed out (network or server slow). Try “Load headlines” again."
         : error?.message || "Failed to load latest links.";
     setStatus(msg);
     renderNews([], topic);

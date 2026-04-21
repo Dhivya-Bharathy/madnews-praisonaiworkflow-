@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>madnews Labs - Praison Workflow</title>
+    <link rel="stylesheet" href="/static/layout.css?v=20260423" />
     <script>
-      tailwind.config = { darkMode: "class" };
       (function () {
         try {
           const saved = localStorage.getItem("madnews-theme");
@@ -13,155 +13,79 @@
         } catch {}
       })();
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body class="min-h-screen bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-    <main class="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-5">
-      <header class="mb-3 flex flex-wrap items-center justify-between gap-2">
+  <body class="app-body">
+    <main class="app-main">
+      <header class="app-header">
         <div>
-          <h1 class="text-2xl font-bold sm:text-3xl">madnews Labs</h1>
-          <p class="mt-0.5 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
+          <h1>madnews Labs</h1>
+          <p>
             Load headlines → tap one for LEFT / CENTER / RIGHT → optional article crawl.
           </p>
         </div>
-        <button
-          id="theme-toggle"
-          type="button"
-          class="inline-flex h-9 shrink-0 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:text-sm"
-        >
-          Toggle Dark
-        </button>
+        <button id="theme-toggle" type="button" class="btn-theme">Toggle Dark</button>
       </header>
 
-      <section
-        class="rounded-xl border border-slate-300 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4"
-      >
-        <form id="topic-form" class="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <section class="card">
+        <form id="topic-form" class="form-row">
           <input
             id="topic-input"
-            class="h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+            class="input-field"
             value="AI news"
             placeholder="Topic (e.g. Waqf Bill, LPG)"
           />
-          <button
-            id="load-btn"
-            type="submit"
-            class="h-10 shrink-0 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 text-sm font-semibold text-white shadow-md transition hover:from-blue-500 hover:to-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Load headlines
-          </button>
+          <button id="load-btn" type="submit" class="btn-primary">Load headlines</button>
         </form>
-        <p id="status" class="mt-2 text-xs text-slate-600 dark:text-slate-400 sm:text-sm"></p>
+        <p id="status" class="status-line"></p>
       </section>
 
-      <nav
-        id="main-tabs"
-        class="sticky top-0 z-30 mt-3 flex gap-1 rounded-xl border border-slate-200 bg-slate-100/95 p-1 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:gap-2"
-        aria-label="Main sections"
-      >
-        <button
-          type="button"
-          data-tab="headlines"
-          class="tab-btn flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold sm:px-3 sm:text-sm"
-        >
-          1 · Headlines
-        </button>
-        <button
-          type="button"
-          data-tab="perspectives"
-          class="tab-btn flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold sm:px-3 sm:text-sm"
-        >
-          2 · Perspectives
-        </button>
-        <button
-          type="button"
-          data-tab="crawl"
-          class="tab-btn flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold sm:px-3 sm:text-sm"
-        >
-          3 · Article
-        </button>
+      <nav id="main-tabs" class="tab-nav" aria-label="Main sections">
+        <button type="button" data-tab="headlines" class="tab-btn">1 · Headlines</button>
+        <button type="button" data-tab="perspectives" class="tab-btn">2 · Perspectives</button>
+        <button type="button" data-tab="crawl" class="tab-btn">3 · Article</button>
       </nav>
 
-      <div
-        id="panel-headlines"
-        class="tab-panel mt-3 rounded-xl border border-slate-300 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4"
-        role="tabpanel"
-      >
-        <p class="mb-2 text-xs text-slate-600 dark:text-slate-400 sm:text-sm">
+      <div id="panel-headlines" class="card card-panel" role="tabpanel">
+        <p class="help">
           Tap a headline — we’ll switch you to <strong>Perspectives</strong> and load LEFT / CENTER / RIGHT for that story.
         </p>
-        <ul
-          id="news-list"
-          class="max-h-[min(52vh,28rem)] space-y-2 overflow-y-auto overscroll-contain pr-1 text-sm"
-        ></ul>
+        <ul id="news-list" class="news-scroll"></ul>
       </div>
 
-      <div
-        id="panel-perspectives"
-        class="tab-panel mt-3 hidden rounded-xl border border-slate-300 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4"
-        role="tabpanel"
-      >
-        <p id="tri-context" class="mb-2 text-sm font-medium text-slate-800 dark:text-slate-100"></p>
-        <div id="tri-status" class="mb-3 text-xs text-slate-600 dark:text-slate-400 sm:text-sm"></div>
-        <div
-          class="max-h-[min(58vh,32rem)] overflow-y-auto overscroll-contain pr-1 lg:max-h-[min(65vh,36rem)]"
-        >
-          <div class="grid gap-3 lg:grid-cols-3">
-            <div class="rounded-xl border border-slate-300 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-              <h3 class="mb-2 text-base font-semibold text-blue-700 dark:text-blue-300">LEFT</h3>
-              <div id="left-summary" class="text-sm text-slate-500 dark:text-slate-400"></div>
-              <ul id="left-links" class="mt-2 space-y-1 text-xs"></ul>
+      <div id="panel-perspectives" class="card card-panel hidden" role="tabpanel">
+        <p id="tri-context" class="tri-context"></p>
+        <div id="tri-status" class="tri-status"></div>
+        <div class="tri-scroll">
+          <div class="tri-grid">
+            <div class="tri-col tri-col-left">
+              <h3>LEFT</h3>
+              <div id="left-summary" class="body"></div>
+              <ul id="left-links"></ul>
             </div>
-            <div class="rounded-xl border border-slate-300 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-              <h3 class="mb-2 text-base font-semibold text-emerald-700 dark:text-emerald-300">CENTER</h3>
-              <div id="center-summary" class="text-sm text-slate-500 dark:text-slate-400"></div>
-              <ul id="center-links" class="mt-2 space-y-1 text-xs"></ul>
+            <div class="tri-col tri-col-center">
+              <h3>CENTER</h3>
+              <div id="center-summary" class="body"></div>
+              <ul id="center-links"></ul>
             </div>
-            <div class="rounded-xl border border-slate-300 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-              <h3 class="mb-2 text-base font-semibold text-rose-700 dark:text-rose-300">RIGHT</h3>
-              <div id="right-summary" class="text-sm text-slate-500 dark:text-slate-400"></div>
-              <ul id="right-links" class="mt-2 space-y-1 text-xs"></ul>
+            <div class="tri-col tri-col-right">
+              <h3>RIGHT</h3>
+              <div id="right-summary" class="body"></div>
+              <ul id="right-links"></ul>
             </div>
           </div>
         </div>
       </div>
 
-      <div
-        id="panel-crawl"
-        class="tab-panel mt-3 hidden rounded-xl border border-slate-300 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4"
-        role="tabpanel"
-      >
-        <p class="mb-2 text-xs text-slate-600 dark:text-slate-400 sm:text-sm">
+      <div id="panel-crawl" class="card card-panel hidden" role="tabpanel">
+        <p class="help">
           Open this tab after you tap <strong>Crawl page</strong> on a headline, or switch here anytime to read the last
           analysis.
         </p>
-        <div
-          id="analysis-wrap"
-          class="max-h-[min(60vh,30rem)] overflow-y-auto text-sm text-slate-700 dark:text-slate-300"
-        >
+        <div id="analysis-wrap" class="analysis-scroll">
           Use “Crawl page (optional)” on a headline in tab 1, or load headlines first.
         </div>
       </div>
     </main>
-    <style>
-      .tab-btn {
-        color: rgb(71 85 105);
-        background: transparent;
-      }
-      .dark .tab-btn {
-        color: rgb(148 163 184);
-      }
-      .tab-btn.tab-active {
-        color: rgb(29 78 216);
-        background: white;
-        box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
-      }
-      .dark .tab-btn.tab-active {
-        color: rgb(147 197 253);
-        background: rgb(15 23 42);
-        box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
-      }
-    </style>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260423"></script>
   </body>
 </html>

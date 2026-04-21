@@ -1,7 +1,8 @@
 Param(
   [string]$OpenAIKey = "",
   [string]$Model = "gpt-4o-mini",
-  [int]$Port = 8780
+  [int]$Port = 8780,
+  [string]$Host = "0.0.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,5 +35,9 @@ if ([string]::IsNullOrWhiteSpace($OpenAIKey)) {
 
 $env:OPENAI_MODEL = $Model
 
-Write-Host "Starting server on http://127.0.0.1:$Port ..."
-uvicorn app:app --host 127.0.0.1 --port $Port --reload
+Write-Host "Starting server (same app everywhere):"
+Write-Host "  http://127.0.0.1:$Port/   and   http://localhost:$Port/"
+if ($Host -eq "0.0.0.0") {
+  Write-Host "  Also: http://<this-PC-LAN-IP>:$Port/  (phone / other devices on Wi‑Fi)"
+}
+uvicorn app:app --host $Host --port $Port --reload
